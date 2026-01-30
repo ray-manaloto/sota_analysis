@@ -2,8 +2,10 @@
 """Collect telemetry for a run directory and write telemetry.json."""
 
 import argparse
+import datetime as dt
 import json
 import os
+import re
 import subprocess
 from pathlib import Path
 
@@ -22,6 +24,8 @@ TOKEN_KEYS = [
 ]
 
 SESSION_KEYS = ("sessionID", "session_id", "sessionId")
+PHASE_REGEX = re.compile(r"\bPHASE:\s*([A-Z][A-Z0-9_-]*)", re.IGNORECASE)
+PHASE_FIELDS = ("content", "text", "message", "input", "output", "prompt")
 
 
 def walk(obj, handler):
@@ -46,7 +50,36 @@ def parse_events(events):
         "tokens_total": 0,
         "session_id": None,
         "variant": None,
+        "phase_timeline": [],
     }
+
+    def parse_timestamp(value):
+        if value is None:
+            return None
+        if isinstance(value, (int, float)):
+            ts = int(value)
+            if ts > 1_000_000_000_000:
+                return ts
+            if ts > 1_000_000_000:
+                return ts * 1000
+            return ts
+        if isinstance(value, str):
+            try:
+                parsed = dt.datetime.fromisoformat(value.replace("Z", "+00:00"))
+                return int(parsed.timestamp() * 1000)
+            except ValueError:
+                return None
+        return None
+
+    def extract_timestamp(node):
+        if not isinstance(node, dict):
+            return None
+        for key in ("timestamp", "time", "created_at", "createdAt", "started_at"):
+            if key in node:
+                ts = parse_timestamp(node.get(key))
+                if ts is not None:
+                    return ts
+        return None
 
     def add_tokens(token_node):
         if not isinstance(token_node, dict):
@@ -100,6 +133,17 @@ def parse_events(events):
         ):
             collected["variant"] = node["variant"]
 
+    def add_phase_markers(node):
+        ts = extract_timestamp(node)
+        for field in PHASE_FIELDS:
+            value = node.get(field)
+            if isinstance(value, str):
+                match = PHASE_REGEX.search(value)
+                if match and ts is not None:
+                    collected["phase_timeline"].append(
+                        {"phase": match.group(1).upper(), "timestamp_ms": ts}
+                    )
+
     def handler(node):
         if not collected["session_id"]:
             for key in SESSION_KEYS:
@@ -118,6 +162,7 @@ def parse_events(events):
                             if isinstance(item, str):
                                 collected[field].add(item)
         add_model(node)
+        add_phase_markers(node)
         if "tokens" in node:
             add_tokens(node.get("tokens"))
         if "usage" in node:
@@ -180,6 +225,43 @@ def load_events_from_jsonl(path: Path):
 def load_events_from_json(path: Path):
     return json.loads(path.read_text(encoding="utf-8"))
 
+def load_phase_log(path: Path):
+    timeline = []
+    for line in path.read_text(encoding="utf-8").splitlines():
+        if not line.strip():
+            continue
+        parts = [p.strip() for p in line.split(",", 1)]
+        if len(parts) != 2:
+            continue
+        ts_raw, phase_raw = parts
+        ts = None
+        try:
+            ts = int(ts_raw)
+        except ValueError:
+            try:
+                parsed = dt.datetime.fromisoformat(ts_raw.replace("Z", "+00:00"))
+                ts = int(parsed.timestamp() * 1000)
+            except ValueError:
+                ts = None
+        if ts is None:
+            continue
+        timeline.append({"phase": phase_raw.upper(), "timestamp_ms": ts})
+    return timeline
+
+
+def compute_phase_durations(timeline):
+    if not timeline:
+        return {}, None
+    timeline = sorted(timeline, key=lambda x: x["timestamp_ms"])
+    durations = {}
+    for idx, entry in enumerate(timeline):
+        phase = entry["phase"]
+        start = entry["timestamp_ms"]
+        end = timeline[idx + 1]["timestamp_ms"] if idx + 1 < len(timeline) else None
+        if end is not None:
+            durations[phase] = end - start
+    total = timeline[-1]["timestamp_ms"] - timeline[0]["timestamp_ms"]
+    return durations, total
 
 def export_opencode(session_id: str, out_path: Path):
     opencode_bin = os.getenv("OPENCODE_BIN", "opencode")
@@ -207,6 +289,10 @@ def main():
     parser.add_argument("--session", help="opencode session ID for export.")
     parser.add_argument("--model", help="Model identifier (provider/model).")
     parser.add_argument("--variant", help="Model variant (if used).")
+    parser.add_argument(
+        "--phase-log",
+        help="Optional phase log file with lines: <epoch_ms_or_iso>,<PHASE>.",
+    )
     args = parser.parse_args()
 
     run_dir = Path(args.run_dir).resolve()
@@ -232,6 +318,10 @@ def main():
                 events = load_events_from_jsonl(candidate)
                 break
 
+    phase_timeline = []
+    if args.phase_log:
+        phase_timeline = load_phase_log(Path(args.phase_log).resolve())
+
     collected = parse_events(events) if events else {
         "tools_used": set(),
         "models": set(),
@@ -243,7 +333,12 @@ def main():
         "tokens_total": None,
         "session_id": None,
         "variant": None,
+        "phase_timeline": [],
     }
+
+    if collected.get("phase_timeline"):
+        phase_timeline.extend(collected["phase_timeline"])
+    phase_durations, duration_ms = compute_phase_durations(phase_timeline)
 
     models = sorted(collected.get("models", []))
     telemetry = {
@@ -260,6 +355,9 @@ def main():
         "models": models,
         "event_count": len(events) if events else None,
         "raw_events": str(raw_export_path) if raw_export_path else None,
+        "phase_timeline": phase_timeline or None,
+        "phase_durations_ms": phase_durations or None,
+        "duration_ms": duration_ms,
     }
 
     (run_dir / "telemetry.json").write_text(

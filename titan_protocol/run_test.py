@@ -79,6 +79,9 @@ CSV_FIELDS = [
     "tokens_prompt",
     "tokens_completion",
     "tokens_total",
+    "duration_ms",
+    "phase_timeline",
+    "phase_durations_ms",
     "tools_used",
     "subagents",
     "skills_used",
@@ -306,6 +309,17 @@ def score_runs(
             "tokens_prompt": telemetry.get("tokens_prompt"),
             "tokens_completion": telemetry.get("tokens_completion"),
             "tokens_total": telemetry.get("tokens_total"),
+            "duration_ms": telemetry.get("duration_ms"),
+            "phase_timeline": (
+                json.dumps(telemetry.get("phase_timeline"))
+                if telemetry.get("phase_timeline")
+                else None
+            ),
+            "phase_durations_ms": (
+                json.dumps(telemetry.get("phase_durations_ms"))
+                if telemetry.get("phase_durations_ms")
+                else None
+            ),
             "tools_used": (
                 json.dumps(telemetry.get("tools_used"))
                 if telemetry.get("tools_used")

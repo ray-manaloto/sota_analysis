@@ -107,6 +107,11 @@ All generated files live under your output root (default `~/titan_protocol_runs`
 ## Telemetry (recommended)
 Capture as much telemetry as possible per run and store it in `telemetry.json`.
 
+**Phase timing (optional but recommended)**
+- Ask the agent to emit markers like `PHASE: PLAN`, `PHASE: DEV`, `PHASE: QA` in its output.
+- If you can write a phase log, use a CSV-style file with lines: `epoch_ms_or_iso,PHASE`
+- Then pass it to the collector: `python collect_telemetry.py --run-dir <run_dir> --phase-log phases.log`
+
 **Option A: from opencode JSON events**
 ```bash
 opencode run --format json "Read TITAN_SPEC.md. Implement the code sequentially." \\
@@ -136,6 +141,8 @@ Telemetry fields captured (if present):
 - skills used
 - slash commands
 - token usage
+- phase timeline + phase durations (when markers/logs exist)
+- overall duration (derived from first/last timestamp)
 - event count
 
 ## Gemini review (headless)
