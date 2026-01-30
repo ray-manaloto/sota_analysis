@@ -4,7 +4,6 @@
 import argparse
 import csv
 import datetime as dt
-import os
 import re
 import shutil
 import subprocess
@@ -17,18 +16,28 @@ TEMPLATE_FILES = [
     "TITAN_SPEC.md",
     "judge.py",
     "README.md",
+    "ruff.toml",
+    ".pylintrc",
+    "mypy.ini",
+    "pyrightconfig.json",
+    ".pydocstyle",
+    "bandit.yaml",
+    ".jscpd.json",
+    ".codespellrc",
+    ".isort.cfg",
+    ".semgrepignore",
 ]
 
 DEFAULT_TOOLS = ["ampcode", "augment", "opencode"]
 SCORED_MARKER = ".scored"
 REQUIRED_OUTPUTS = ["ingest.py", "report.py", "main.py", "tests"]
-ARTIFACTS_DIRNAME = "artifacts"
+DEFAULT_OUTPUT_ROOT = Path.home() / "titan_protocol_runs"
 
 SCORE_PATTERNS = {
     "context": re.compile(r"\[(\d+)/25\].*Context Trap", re.IGNORECASE),
     "research": re.compile(r"\[(\d+)/25\].*Research Trap", re.IGNORECASE),
     "qa": re.compile(r"\[(\d+)/20\].*QA Trap", re.IGNORECASE),
-    "quality": re.compile(r"\[(\d+)/20\].*Linter", re.IGNORECASE),
+    "quality": re.compile(r"\[(\d+)/20\].*Quality", re.IGNORECASE),
     "docs": re.compile(r"\[(\d+)/10\].*Documentation", re.IGNORECASE),
     "final": re.compile(r"FINAL SCORE:\s*(\d+)/100", re.IGNORECASE),
     "ruff_errors": re.compile(r"Linter Failed \((\d+) errors\)", re.IGNORECASE),
@@ -44,6 +53,23 @@ CSV_FIELDS = [
     "research",
     "qa",
     "quality",
+    "quality_ruff",
+    "quality_modernization",
+    "quality_complexity",
+    "quality_pylint",
+    "quality_dead_code",
+    "quality_duplication",
+    "quality_type_check",
+    "quality_security",
+    "quality_coverage",
+    "quality_docstyle",
+    "quality_semgrep",
+    "quality_pip_audit",
+    "quality_codespell",
+    "quality_ruff_format",
+    "quality_isort",
+    "quality_license",
+    "quality_details",
     "docs",
     "ruff_errors",
     "judge_exit",
@@ -79,6 +105,38 @@ def parse_score(output: str) -> dict:
     return result
 
 
+def load_judge_json(run_dir: Path) -> dict:
+    judge_path = run_dir / "judge.json"
+    if not judge_path.exists():
+        return {}
+    try:
+        return json.loads(judge_path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        return {}
+
+
+def apply_pytest_cap(score: dict, judge_payload: dict) -> dict:
+    execution = judge_payload.get("execution") or {}
+    pytest_payload = execution.get("pytest") or {}
+    if pytest_payload.get("ok") is False:
+        score["quality"] = 0
+        quality_breakdown = score.get("quality_breakdown")
+        if isinstance(quality_breakdown, dict):
+            quality_breakdown["score"] = 0
+            for check in quality_breakdown.get("checks", {}).values():
+                if isinstance(check, dict):
+                    check["earned"] = 0
+        components = [
+            score.get("context") or 0,
+            score.get("research") or 0,
+            score.get("qa") or 0,
+            score.get("quality") or 0,
+            score.get("docs") or 0,
+        ]
+        score["final"] = sum(components)
+    return score
+
+
 def unique_run_dir(tool_root: Path, timestamp: str, run_idx: int) -> Path:
     base_name = f"{timestamp}_run{run_idx:02d}"
     run_dir = tool_root / base_name
@@ -92,9 +150,8 @@ def unique_run_dir(tool_root: Path, timestamp: str, run_idx: int) -> Path:
         suffix += 1
 
 
-def prepare_runs(base_dir: Path, tools: list, runs: int) -> list:
-    artifacts_root = base_dir / ARTIFACTS_DIRNAME
-    runs_root = artifacts_root / "runs"
+def prepare_runs(base_dir: Path, output_root: Path, tools: list, runs: int) -> list:
+    runs_root = output_root / "runs"
     runs_root.mkdir(parents=True, exist_ok=True)
 
     created = []
@@ -137,13 +194,13 @@ def load_telemetry(run_dir: Path) -> dict:
 
 def score_runs(
     base_dir: Path,
+    output_root: Path,
     tools: list,
     out_csv: Path,
     out_json: Path,
     rescore: bool,
 ) -> list:
-    artifacts_root = base_dir / ARTIFACTS_DIRNAME
-    runs_root = artifacts_root / "runs"
+    runs_root = output_root / "runs"
     if not runs_root.exists():
         raise FileNotFoundError("No runs directory found. Run prepare first.")
 
@@ -183,14 +240,33 @@ def score_runs(
                 text=True,
             )
             output = proc.stdout + proc.stderr
-            score = parse_score(output)
+            judge_payload = load_judge_json(run_dir)
+            if judge_payload:
+                score = {
+                    "context": judge_payload.get("context"),
+                    "research": judge_payload.get("research"),
+                    "qa": judge_payload.get("qa"),
+                    "quality": judge_payload.get("quality"),
+                    "docs": judge_payload.get("docs"),
+                    "final": judge_payload.get("score"),
+                    "ruff_errors": judge_payload.get("ruff_errors"),
+                    "quality_breakdown": judge_payload.get("quality_breakdown"),
+                }
+                score = apply_pytest_cap(score, judge_payload)
+            else:
+                score = parse_score(output)
         else:
             output = f"INCOMPLETE RUN: missing {', '.join(missing)}\n"
 
         (run_dir / "judge.log").write_text(output, encoding="utf-8")
         if complete:
-            marker.write_text(dt.datetime.now().isoformat(timespec="seconds"), encoding="utf-8")
+            marker.write_text(
+                dt.datetime.now().isoformat(timespec="seconds"),
+                encoding="utf-8",
+            )
         telemetry = load_telemetry(run_dir)
+        quality_breakdown = score.get("quality_breakdown") or {}
+        checks = quality_breakdown.get("checks") or {}
         row = {
             "timestamp": dt.datetime.now().isoformat(timespec="seconds"),
             "tool": run_dir.parent.name,
@@ -202,6 +278,25 @@ def score_runs(
             "research": score["research"],
             "qa": score["qa"],
             "quality": score["quality"],
+            "quality_ruff": checks.get("ruff", {}).get("earned"),
+            "quality_modernization": checks.get("modernization", {}).get("earned"),
+            "quality_complexity": checks.get("complexity", {}).get("earned"),
+            "quality_pylint": checks.get("pylint", {}).get("earned"),
+            "quality_dead_code": checks.get("dead_code", {}).get("earned"),
+            "quality_duplication": checks.get("duplication", {}).get("earned"),
+            "quality_type_check": checks.get("type_check", {}).get("earned"),
+            "quality_security": checks.get("security", {}).get("earned"),
+            "quality_coverage": checks.get("coverage", {}).get("earned"),
+            "quality_docstyle": checks.get("docstyle", {}).get("earned"),
+            "quality_semgrep": checks.get("semgrep", {}).get("earned"),
+            "quality_pip_audit": checks.get("pip_audit", {}).get("earned"),
+            "quality_codespell": checks.get("codespell", {}).get("earned"),
+            "quality_ruff_format": checks.get("ruff_format", {}).get("earned"),
+            "quality_isort": checks.get("isort", {}).get("earned"),
+            "quality_license": checks.get("license", {}).get("earned"),
+            "quality_details": (
+                json.dumps(quality_breakdown) if quality_breakdown else None
+            ),
             "docs": score["docs"],
             "ruff_errors": score["ruff_errors"],
             "judge_exit": proc.returncode if proc else -1,
@@ -211,10 +306,26 @@ def score_runs(
             "tokens_prompt": telemetry.get("tokens_prompt"),
             "tokens_completion": telemetry.get("tokens_completion"),
             "tokens_total": telemetry.get("tokens_total"),
-            "tools_used": json.dumps(telemetry.get("tools_used")) if telemetry.get("tools_used") else None,
-            "subagents": json.dumps(telemetry.get("subagents")) if telemetry.get("subagents") else None,
-            "skills_used": json.dumps(telemetry.get("skills_used")) if telemetry.get("skills_used") else None,
-            "slash_commands": json.dumps(telemetry.get("slash_commands")) if telemetry.get("slash_commands") else None,
+            "tools_used": (
+                json.dumps(telemetry.get("tools_used"))
+                if telemetry.get("tools_used")
+                else None
+            ),
+            "subagents": (
+                json.dumps(telemetry.get("subagents"))
+                if telemetry.get("subagents")
+                else None
+            ),
+            "skills_used": (
+                json.dumps(telemetry.get("skills_used"))
+                if telemetry.get("skills_used")
+                else None
+            ),
+            "slash_commands": (
+                json.dumps(telemetry.get("slash_commands"))
+                if telemetry.get("slash_commands")
+                else None
+            ),
             "telemetry_json": json.dumps(telemetry) if telemetry else None,
         }
         rows.append(row)
@@ -307,14 +418,21 @@ def main() -> None:
         help="(Deprecated) CSV path for scoring output. Use --out-csv.",
     )
     parser.add_argument(
+        "--output-root",
+        default=str(DEFAULT_OUTPUT_ROOT),
+        help="Root directory for runs and results (default: ~/titan_protocol_runs).",
+    )
+    parser.add_argument(
         "--out-csv",
-        default=f"{ARTIFACTS_DIRNAME}/results.csv",
-        help="CSV path for scoring output (relative to titan_protocol).",
+        default="results.csv",
+        help="CSV path for scoring output (relative to --output-root unless absolute).",
     )
     parser.add_argument(
         "--out-json",
-        default=f"{ARTIFACTS_DIRNAME}/results.jsonl",
-        help="JSONL path for scoring output (relative to titan_protocol).",
+        default="results.jsonl",
+        help=(
+            "JSONL path for scoring output (relative to --output-root unless absolute)."
+        ),
     )
     parser.add_argument(
         "--prepare",
@@ -338,22 +456,36 @@ def main() -> None:
         raise SystemExit("No tools specified.")
 
     base_dir = Path(__file__).resolve().parent
+    output_root = Path(args.output_root).expanduser().resolve()
     if args.out:
-        out_csv = base_dir / args.out
+        out_csv = Path(args.out).expanduser()
+        if not out_csv.is_absolute():
+            out_csv = output_root / out_csv
     else:
-        out_csv = base_dir / args.out_csv
-    out_json = base_dir / args.out_json
+        out_csv = Path(args.out_csv).expanduser()
+        if not out_csv.is_absolute():
+            out_csv = output_root / out_csv
+    out_json = Path(args.out_json).expanduser()
+    if not out_json.is_absolute():
+        out_json = output_root / out_json
 
     if not args.prepare and not args.score:
         parser.print_help()
         return
 
     if args.prepare:
-        created = prepare_runs(base_dir, tools, args.runs)
-        print(f"Prepared {len(created)} run directories under {base_dir / ARTIFACTS_DIRNAME / 'runs'}")
+        created = prepare_runs(base_dir, output_root, tools, args.runs)
+        print(f"Prepared {len(created)} run directories under {output_root / 'runs'}")
 
     if args.score:
-        rows = score_runs(base_dir, tools, out_csv, out_json, rescore=args.rescore)
+        rows = score_runs(
+            base_dir,
+            output_root,
+            tools,
+            out_csv,
+            out_json,
+            rescore=args.rescore,
+        )
         print(f"Scored {len(rows)} runs. Appended to {out_csv}")
 
 

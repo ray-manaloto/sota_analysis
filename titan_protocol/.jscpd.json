@@ -1,0 +1,16 @@
+{
+  "minLines": 5,
+  "minTokens": 70,
+  "threshold": 0,
+  "reporters": ["json"],
+  "output": ".jscpd-report",
+  "ignore": [
+    "**/.venv/**",
+    "**/__pycache__/**",
+    "**/.pytest_cache/**",
+    "**/.ruff_cache/**",
+    "**/.mypy_cache/**",
+    "**/.pyright/**",
+    "**/.jscpd-report/**"
+  ]
+}

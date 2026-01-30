@@ -44,7 +44,9 @@ def summarize(rows):
     for tool, items in tools.items():
         scores = [parse_int(r.get("score")) for r in items]
         scores = [s for s in scores if s is not None]
-        complete_count = sum(1 for r in items if str(r.get("complete", "")).lower() == "true")
+        complete_count = sum(
+            1 for r in items if str(r.get("complete", "")).lower() == "true"
+        )
         total = len(items)
 
         def avg(field):
@@ -79,7 +81,14 @@ def write_markdown(summary, out_path: Path, source_path: Path):
     lines.append("| --- | --- | --- | --- | --- | --- |")
     for tool, data in sorted(summary.items()):
         lines.append(
-            f"| {tool} | {data['runs']} | {data['complete']} | {data['avg_score']} | {data['min_score']} | {data['max_score']} |"
+            "| {tool} | {runs} | {complete} | {avg} | {min} | {max} |".format(
+                tool=tool,
+                runs=data["runs"],
+                complete=data["complete"],
+                avg=data["avg_score"],
+                min=data["min_score"],
+                max=data["max_score"],
+            )
         )
 
     lines.append("")
@@ -89,7 +98,14 @@ def write_markdown(summary, out_path: Path, source_path: Path):
     lines.append("| --- | --- | --- | --- | --- | --- |")
     for tool, data in sorted(summary.items()):
         lines.append(
-            f"| {tool} | {data['context']} | {data['research']} | {data['qa']} | {data['quality']} | {data['docs']} |"
+            "| {tool} | {context} | {research} | {qa} | {quality} | {docs} |".format(
+                tool=tool,
+                context=data["context"],
+                research=data["research"],
+                qa=data["qa"],
+                quality=data["quality"],
+                docs=data["docs"],
+            )
         )
 
     out_path.write_text("\n".join(lines) + "\n", encoding="utf-8")

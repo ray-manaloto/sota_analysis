@@ -1,0 +1,20 @@
+[MASTER]
+ignore=.venv
+jobs=0
+
+[MESSAGES CONTROL]
+disable=
+    duplicate-code,
+    import-error,
+    missing-class-docstring,
+    missing-function-docstring,
+    missing-module-docstring,
+    too-few-public-methods,
+    too-many-arguments,
+    too-many-branches,
+    too-many-locals,
+    too-many-return-statements,
+    too-many-statements
+
+[FORMAT]
+max-line-length=88

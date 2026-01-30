@@ -1,0 +1,13 @@
+{
+  "general": {
+    "previewFeatures": true
+  },
+  "telemetry": {
+    "enabled": true,
+    "target": "local",
+    "otlpEndpoint": "",
+    "outfile": "$HOME/titan_protocol_runs/reviews/gemini_telemetry.log",
+    "logPrompts": true,
+    "useCollector": false
+  }
+}

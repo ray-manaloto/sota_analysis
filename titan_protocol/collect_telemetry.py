@@ -5,7 +5,6 @@ import argparse
 import json
 import os
 import subprocess
-import sys
 from pathlib import Path
 
 
@@ -94,7 +93,11 @@ def parse_events(events):
                 collected["models"].add(model_name)
             if variant and not collected["variant"]:
                 collected["variant"] = variant
-        if "variant" in node and isinstance(node.get("variant"), str) and not collected["variant"]:
+        if (
+            "variant" in node
+            and isinstance(node.get("variant"), str)
+            and not collected["variant"]
+        ):
             collected["variant"] = node["variant"]
 
     def handler(node):
@@ -127,8 +130,14 @@ def parse_events(events):
                     collected[output_key] += node[key]
 
     walk(events, handler)
-    if collected["tokens_total"] == 0 and collected["tokens_prompt"] and collected["tokens_completion"]:
-        collected["tokens_total"] = collected["tokens_prompt"] + collected["tokens_completion"]
+    if (
+        collected["tokens_total"] == 0
+        and collected["tokens_prompt"]
+        and collected["tokens_completion"]
+    ):
+        collected["tokens_total"] = (
+            collected["tokens_prompt"] + collected["tokens_completion"]
+        )
     return collected
 
 
@@ -136,8 +145,16 @@ def parse_model_value(model_value):
     if isinstance(model_value, str):
         return model_value, None
     if isinstance(model_value, dict):
-        provider = model_value.get("providerID") or model_value.get("provider") or model_value.get("providerId")
-        model_id = model_value.get("modelID") or model_value.get("modelId") or model_value.get("model")
+        provider = (
+            model_value.get("providerID")
+            or model_value.get("provider")
+            or model_value.get("providerId")
+        )
+        model_id = (
+            model_value.get("modelID")
+            or model_value.get("modelId")
+            or model_value.get("model")
+        )
         variant = model_value.get("variant") or model_value.get("modelVariant")
         if provider and model_id:
             return f"{provider}/{model_id}", variant
@@ -182,7 +199,11 @@ def main():
     parser = argparse.ArgumentParser(description="Collect run telemetry.")
     parser.add_argument("--run-dir", required=True, help="Run directory path.")
     parser.add_argument("--events", help="Path to JSONL events file.")
-    parser.add_argument("--export", action="store_true", help="Export opencode session JSON.")
+    parser.add_argument(
+        "--export",
+        action="store_true",
+        help="Export opencode session JSON.",
+    )
     parser.add_argument("--session", help="opencode session ID for export.")
     parser.add_argument("--model", help="Model identifier (provider/model).")
     parser.add_argument("--variant", help="Model variant (if used).")
@@ -204,6 +225,12 @@ def main():
         events_path = Path(args.events).resolve()
         raw_export_path = events_path
         events = load_events_from_jsonl(events_path)
+    else:
+        for candidate in (run_dir / "events.jsonl", run_dir / "opencode_events.jsonl"):
+            if candidate.exists():
+                raw_export_path = candidate
+                events = load_events_from_jsonl(candidate)
+                break
 
     collected = parse_events(events) if events else {
         "tools_used": set(),

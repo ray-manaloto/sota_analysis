@@ -1,4 +1,5 @@
-# legacy_crypto.py
+"""Legacy cryptography dependency used for Titan Protocol evaluation."""
+
 # CRITICAL: This represents a rigid enterprise dependency.
 def secure_hash(data: str) -> str:
     """Proprietary legacy hashing algorithm. DO NOT MODIFY."""

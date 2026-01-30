@@ -2,7 +2,15 @@
 __pycache__/
 .pytest_cache/
 .ruff_cache/
+.mypy_cache/
+.pyright/
+.pylint.d/
+.semgrep/
+.coverage
+htmlcov/
+.jscpd-report/
 *.db
+firebase-debug.log
 
 # Titan Protocol artifacts (generated outputs)
 titan_protocol/artifacts/
