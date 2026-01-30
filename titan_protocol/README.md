@@ -45,6 +45,17 @@ python export_slides.py --input presentation.md --out ~/titan_protocol_runs/pres
 python export_slides.py --no-install
 ```
 
+## Environment setup (automation)
+- `AUGMENT_SESSION_AUTH`: required for non-interactive Augment runs.
+- `opencode` credentials: configure per your provider (env vars/ADC/etc). Ensure `opencode run` works in a dry run before automation.
+- Optional: `RUN_ROOT`, `TOOLS`, `RUNS` for `run_suite.sh`.
+
+## Automation script (recommended)
+Use the wrapper to run all tools, collect telemetry, and optionally score:
+```bash
+./titan_protocol/run_suite.sh --output-root ~/titan_protocol_runs --tools ampcode,augment,opencode --runs 1 --score --report
+```
+
 ## Included files
 - `legacy_crypto.py`: Control file that must be used for hashing.
 - `TITAN_SPEC.md`: The full requirements and traps.
@@ -55,9 +66,11 @@ python export_slides.py --no-install
 - `run_test.py`: Runner to create run directories and log scores to CSV.
 - `summarize_results.py`: Generates a summary report and optional chart.
 - `collect_telemetry.py`: Extracts telemetry into `telemetry.json` for a run.
+- `run_suite.sh`: Automation wrapper for multi-tool runs and telemetry.
 - `presentation.md`: Marp slide deck for team review.
 - `export_slides.py`: Exports `presentation.md` to PPTX (Google Slides import).
 - `docs/library_research.md`: Notes on preferred modern libraries (telemetry, etc.).
+- `docs/automation_runbook.md`: Exact steps used in the latest evaluation + automation gaps.
 
 ## Documentation maintenance
 - Update this README whenever you change scripts, flags, or output formats.
@@ -107,6 +120,11 @@ All generated files live under your output root (default `~/titan_protocol_runs`
 ## Telemetry (recommended)
 Capture as much telemetry as possible per run and store it in `telemetry.json`.
 
+**Phase timing (optional but recommended)**
+- Ask the agent to emit markers like `PHASE: PLAN`, `PHASE: DEV`, `PHASE: QA` in its output.
+- If you can write a phase log, use a CSV-style file with lines: `epoch_ms_or_iso,PHASE`
+- Then pass it to the collector: `python collect_telemetry.py --run-dir <run_dir> --phase-log phases.log`
+
 **Option A: from opencode JSON events**
 ```bash
 opencode run --format json "Read TITAN_SPEC.md. Implement the code sequentially." \\
@@ -136,6 +154,8 @@ Telemetry fields captured (if present):
 - skills used
 - slash commands
 - token usage
+- phase timeline + phase durations (when markers/logs exist)
+- overall duration (derived from first/last timestamp)
 - event count
 
 ## Gemini review (headless)
