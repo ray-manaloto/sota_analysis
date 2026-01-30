@@ -11,7 +11,6 @@ from pathlib import Path
 
 KEY_MAP = {
     "tools_used": {"tool", "tool_name", "toolName"},
-    "models": {"model", "model_name", "modelName"},
     "subagents": {"agent", "agent_name", "agentName", "subagent_type"},
     "skills_used": {"skill", "skills"},
     "slash_commands": {"command", "slash_command", "slashCommand"},
@@ -22,6 +21,8 @@ TOKEN_KEYS = [
     ("tokens_completion", {"completion_tokens", "output_tokens"}),
     ("tokens_total", {"total_tokens"}),
 ]
+
+SESSION_KEYS = ("sessionID", "session_id", "sessionId")
 
 
 def walk(obj, handler):
@@ -44,9 +45,65 @@ def parse_events(events):
         "tokens_prompt": 0,
         "tokens_completion": 0,
         "tokens_total": 0,
+        "session_id": None,
+        "variant": None,
     }
 
+    def add_tokens(token_node):
+        if not isinstance(token_node, dict):
+            return
+        prompt = token_node.get("prompt")
+        if prompt is None:
+            prompt = token_node.get("input")
+        if prompt is None:
+            prompt = token_node.get("prompt_tokens")
+        if prompt is None:
+            prompt = token_node.get("input_tokens")
+        completion = token_node.get("completion")
+        if completion is None:
+            completion = token_node.get("output")
+        if completion is None:
+            completion = token_node.get("completion_tokens")
+        if completion is None:
+            completion = token_node.get("output_tokens")
+        total = token_node.get("total")
+        if total is None:
+            total = token_node.get("total_tokens")
+        if isinstance(prompt, int):
+            collected["tokens_prompt"] += prompt
+        if isinstance(completion, int):
+            collected["tokens_completion"] += completion
+        if isinstance(total, int):
+            collected["tokens_total"] += total
+
+    def add_model(node):
+        if "model" in node:
+            model_value = node.get("model")
+            model_name, variant = parse_model_value(model_value)
+            if model_name:
+                collected["models"].add(model_name)
+            if variant and not collected["variant"]:
+                collected["variant"] = variant
+        if "modelID" in node or "modelId" in node:
+            model_id = node.get("modelID") or node.get("modelId")
+            provider = node.get("providerID") or node.get("providerId")
+            model_name, variant = parse_model_value(
+                {"providerID": provider, "modelID": model_id}
+            )
+            if model_name:
+                collected["models"].add(model_name)
+            if variant and not collected["variant"]:
+                collected["variant"] = variant
+        if "variant" in node and isinstance(node.get("variant"), str) and not collected["variant"]:
+            collected["variant"] = node["variant"]
+
     def handler(node):
+        if not collected["session_id"]:
+            for key in SESSION_KEYS:
+                value = node.get(key)
+                if isinstance(value, str):
+                    collected["session_id"] = value
+                    break
         for field, keys in KEY_MAP.items():
             for key in keys:
                 if key in node:
@@ -57,13 +114,36 @@ def parse_events(events):
                         for item in value:
                             if isinstance(item, str):
                                 collected[field].add(item)
+        add_model(node)
+        if "tokens" in node:
+            add_tokens(node.get("tokens"))
+        if "usage" in node:
+            add_tokens(node.get("usage"))
+        if "token_usage" in node:
+            add_tokens(node.get("token_usage"))
         for output_key, token_keys in TOKEN_KEYS:
             for key in token_keys:
                 if key in node and isinstance(node[key], int):
                     collected[output_key] += node[key]
 
     walk(events, handler)
+    if collected["tokens_total"] == 0 and collected["tokens_prompt"] and collected["tokens_completion"]:
+        collected["tokens_total"] = collected["tokens_prompt"] + collected["tokens_completion"]
     return collected
+
+
+def parse_model_value(model_value):
+    if isinstance(model_value, str):
+        return model_value, None
+    if isinstance(model_value, dict):
+        provider = model_value.get("providerID") or model_value.get("provider") or model_value.get("providerId")
+        model_id = model_value.get("modelID") or model_value.get("modelId") or model_value.get("model")
+        variant = model_value.get("variant") or model_value.get("modelVariant")
+        if provider and model_id:
+            return f"{provider}/{model_id}", variant
+        if model_id:
+            return str(model_id), variant
+    return None, None
 
 
 def load_events_from_jsonl(path: Path):
@@ -134,12 +214,15 @@ def main():
         "tokens_prompt": None,
         "tokens_completion": None,
         "tokens_total": None,
+        "session_id": None,
+        "variant": None,
     }
 
+    models = sorted(collected.get("models", []))
     telemetry = {
-        "session_id": args.session,
-        "model": args.model,
-        "variant": args.variant,
+        "session_id": args.session or collected.get("session_id"),
+        "model": args.model or (models[0] if models else None),
+        "variant": args.variant or collected.get("variant"),
         "tokens_prompt": collected.get("tokens_prompt") or None,
         "tokens_completion": collected.get("tokens_completion") or None,
         "tokens_total": collected.get("tokens_total") or None,
@@ -147,6 +230,8 @@ def main():
         "subagents": sorted(collected.get("subagents", [])),
         "skills_used": sorted(collected.get("skills_used", [])),
         "slash_commands": sorted(collected.get("slash_commands", [])),
+        "models": models,
+        "event_count": len(events) if events else None,
         "raw_events": str(raw_export_path) if raw_export_path else None,
     }
 

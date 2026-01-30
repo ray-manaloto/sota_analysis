@@ -230,6 +230,9 @@ def score_runs(
         for row in rows:
             f.write(json.dumps(row) + "\n")
 
+    out_json_array = json_array_path(out_json)
+    write_json_array(out_json, out_json_array)
+
     return rows
 
 
@@ -259,6 +262,28 @@ def ensure_csv_schema(out_csv: Path) -> None:
         for row in rows:
             normalized = {field: row.get(field) for field in CSV_FIELDS}
             writer.writerow(normalized)
+
+
+def json_array_path(out_jsonl: Path) -> Path:
+    if out_jsonl.suffix == ".jsonl":
+        return out_jsonl.with_suffix(".json")
+    return out_jsonl.with_suffix(out_jsonl.suffix + ".json")
+
+
+def write_json_array(out_jsonl: Path, out_json: Path) -> None:
+    if not out_jsonl.exists():
+        return
+    rows = []
+    with out_jsonl.open(encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                rows.append(json.loads(line))
+            except json.JSONDecodeError:
+                continue
+    out_json.write_text(json.dumps(rows, indent=2), encoding="utf-8")
 
 
 def main() -> None:
@@ -325,7 +350,7 @@ def main() -> None:
 
     if args.prepare:
         created = prepare_runs(base_dir, tools, args.runs)
-        print(f"Prepared {len(created)} run directories under {base_dir / 'runs'}")
+        print(f"Prepared {len(created)} run directories under {base_dir / ARTIFACTS_DIRNAME / 'runs'}")
 
     if args.score:
         rows = score_runs(base_dir, tools, out_csv, out_json, rescore=args.rescore)

@@ -25,7 +25,7 @@ Prepare fresh run directories per tool, then score them into a CSV.
 # Prepare 1 run per tool (ampcode, augment, opencode)
 python run_test.py --prepare --runs 1
 
-# After agents finish, score all runs (writes CSV + JSONL)
+# After agents finish, score all runs (writes CSV + JSONL + JSON)
 python run_test.py --score
 
 # Re-score previously scored runs
@@ -63,12 +63,13 @@ python export_slides.py --no-install
 ## Artifacts layout
 All generated files live under `artifacts/`:
 - `artifacts/runs/<tool>/<run_id>/` (full run outputs)
-- `artifacts/results.csv` and `artifacts/results.jsonl` (structured results)
+- `artifacts/results.csv`, `artifacts/results.jsonl`, and `artifacts/results.json` (structured results)
 - `artifacts/summary.md` and `artifacts/summary.png`
 
 ## Results format
 - **CSV** for quick spreadsheet review and charts.
-- **JSONL** for structured telemetry and automation.
+- **JSONL** for structured telemetry and automation pipelines.
+- **JSON** array for tools that prefer a single structured document.
 
 ## Telemetry (recommended)
 Capture as much telemetry as possible per run and store it in `telemetry.json`.
@@ -80,27 +81,25 @@ opencode run --format json "Read TITAN_SPEC.md. Implement the code sequentially.
 
 python collect_telemetry.py \\
   --run-dir artifacts/runs/opencode/<run_id> \\
-  --events artifacts/runs/opencode/<run_id>/opencode_events.jsonl \\
-  --model <provider/model> \\
-  --variant <variant>
+  --events artifacts/runs/opencode/<run_id>/opencode_events.jsonl
 ```
 
 **Option B: from opencode export**
 ```bash
 python collect_telemetry.py \\
   --run-dir artifacts/runs/opencode/<run_id> \\
-  --export --session <SESSION_ID> \\
-  --model <provider/model> \\
-  --variant <variant>
+  --export --session <SESSION_ID>
 ```
 
 Telemetry fields captured (if present):
+- session ID
 - models used
 - subagents
 - tools used
 - skills used
 - slash commands
 - token usage
+- event count
 
 ## Expected outputs from the agent
 - `ingest.py`, `report.py`, `main.py`
