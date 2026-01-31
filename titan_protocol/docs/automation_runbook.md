@@ -22,6 +22,13 @@ This document captures the exact steps used in the latest evaluation runs and th
 - Optional env vars:
   - `TITAN_NO_INSTALL=1` to skip auto-install during judge/summary/export.
   - Note: `phase_log.py` auto-installs `pendulum` unless `TITAN_NO_INSTALL=1` is set.
+- Optional OpenLIT env vars (OTLP export):
+  - `OPENLIT_ENDPOINT` (e.g., `http://localhost:4318`)
+  - `OPENLIT_HEADERS` (e.g., `Authorization=...`)
+  - `OPENLIT_SERVICE_NAME` / `OPENLIT_ENVIRONMENT` / `OPENLIT_PROTOCOL`
+  - `OPENLIT_ENABLE=1` to force wrapper usage
+  - Note: `run_suite.sh` will auto-install `openlit` unless `TITAN_NO_INSTALL=1`.
+  - When enabled, `run_suite.sh` wraps Python commands with `openlit-instrument` and wires OTEL_* env vars.
 - Authentication check:
   - OpenCode: ensure provider credentials are configured (env vars/ADC/etc). Automation should fail fast if a smoke run returns non-zero.
   - Augment: `AUGMENT_SESSION_AUTH` must be present for non-interactive runs.

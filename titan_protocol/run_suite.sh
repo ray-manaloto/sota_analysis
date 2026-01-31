@@ -9,6 +9,12 @@ CLEAN=0
 SCORE=0
 RESCORE=0
 REPORT=0
+OPENLIT_ENABLE=${OPENLIT_ENABLE:-}
+OPENLIT_ENDPOINT=${OPENLIT_ENDPOINT:-}
+OPENLIT_HEADERS=${OPENLIT_HEADERS:-}
+OPENLIT_SERVICE_NAME=${OPENLIT_SERVICE_NAME:-titan-protocol}
+OPENLIT_ENVIRONMENT=${OPENLIT_ENVIRONMENT:-default}
+OPENLIT_PROTOCOL=${OPENLIT_PROTOCOL:-}
 SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 REPO_ROOT=$(cd "$SCRIPT_DIR/.." && pwd)
 
@@ -22,6 +28,12 @@ Environment:
   RUNS                  Runs per tool
   AUGMENT_SESSION_AUTH  Required for auggie non-interactive runs
   REPORT=1              Generate summary + slides when scoring
+  OPENLIT_ENABLE=1      Enable OpenLIT wrapper if openlit-instrument is available
+  OPENLIT_ENDPOINT      OTLP endpoint for OpenLIT (e.g., http://localhost:4318)
+  OPENLIT_HEADERS       OTLP headers for OpenLIT (e.g., Authorization=Basic%20...)
+  OPENLIT_SERVICE_NAME  OTEL service name (default: titan-protocol)
+  OPENLIT_ENVIRONMENT   OTEL deployment environment (default: default)
+  OPENLIT_PROTOCOL      OTEL protocol (e.g., http/protobuf)
 USAGE
 }
 
@@ -76,6 +88,42 @@ node --version >/dev/null || { echo "node missing"; exit 1; }
 npm --version >/dev/null || { echo "npm missing"; exit 1; }
 opencode auth list >/dev/null 2>&1 || { echo "opencode auth list failed"; exit 1; }
 
+OPENLIT_ACTIVE=0
+if [[ -n "$OPENLIT_ENABLE" || -n "$OPENLIT_ENDPOINT" ]]; then
+  OPENLIT_ACTIVE=1
+  if [[ -n "$OPENLIT_ENDPOINT" ]]; then
+    export OTEL_EXPORTER_OTLP_ENDPOINT="${OTEL_EXPORTER_OTLP_ENDPOINT:-$OPENLIT_ENDPOINT}"
+  fi
+  if [[ -n "$OPENLIT_HEADERS" ]]; then
+    export OTEL_EXPORTER_OTLP_HEADERS="${OTEL_EXPORTER_OTLP_HEADERS:-$OPENLIT_HEADERS}"
+  fi
+  export OTEL_SERVICE_NAME="${OTEL_SERVICE_NAME:-$OPENLIT_SERVICE_NAME}"
+  export OTEL_DEPLOYMENT_ENVIRONMENT="${OTEL_DEPLOYMENT_ENVIRONMENT:-$OPENLIT_ENVIRONMENT}"
+  if [[ -n "$OPENLIT_PROTOCOL" ]]; then
+    export OTEL_EXPORTER_OTLP_PROTOCOL="${OTEL_EXPORTER_OTLP_PROTOCOL:-$OPENLIT_PROTOCOL}"
+  fi
+  if ! command -v openlit-instrument >/dev/null; then
+    if [[ "${TITAN_NO_INSTALL:-}" == "1" ]]; then
+      echo "openlit-instrument missing and TITAN_NO_INSTALL=1" >&2
+      exit 1
+    fi
+    python3 -m pip install openlit
+  fi
+fi
+
+openlit_args=(openlit-instrument --service-name "$OPENLIT_SERVICE_NAME" --environment "$OPENLIT_ENVIRONMENT")
+if [[ -n "$OPENLIT_ENDPOINT" ]]; then
+  openlit_args+=(--otlp-endpoint "$OPENLIT_ENDPOINT")
+fi
+
+run_py() {
+  if [[ "$OPENLIT_ACTIVE" -eq 1 ]]; then
+    "${openlit_args[@]}" python3 "$@"
+  else
+    python3 "$@"
+  fi
+}
+
 if echo "$TOOLS" | grep -q "augment"; then
   [ -z "${AUGMENT_SESSION_AUTH:-}" ] && { echo "AUGMENT_SESSION_AUTH not set"; exit 1; }
 fi
@@ -86,7 +134,7 @@ if [[ "$CLEAN" -eq 1 ]] && [[ -d "$RUN_ROOT" ]]; then
   mv "$RUN_ROOT" "${RUN_ROOT}_$(date +%Y%m%d_%H%M%S)"
 fi
 
-python "$REPO_ROOT/titan_protocol/run_test.py" --prepare --runs "$RUNS" --output-root "$RUN_ROOT" --tools "$TOOLS"
+run_py "$REPO_ROOT/titan_protocol/run_test.py" --prepare --runs "$RUNS" --output-root "$RUN_ROOT" --tools "$TOOLS"
 
 IFS=',' read -r -a tool_list <<<"$TOOLS"
 
@@ -153,9 +201,9 @@ for tool in "${tool_list[@]}"; do
     esac
 
     set +e
-    python3 -m pytest -q
+    run_py -m pytest -q
     pytest_status=$?
-    python3 judge.py
+    run_py judge.py
     judge_status=$?
     set -e
 
@@ -165,7 +213,7 @@ for tool in "${tool_list[@]}"; do
 
     if [[ "$tool" == "opencode" ]]; then
       if [[ -s opencode_events.jsonl ]]; then
-        python "$REPO_ROOT/titan_protocol/collect_telemetry.py" --run-dir "$run_dir" --events "$run_dir/opencode_events.jsonl"
+        run_py "$REPO_ROOT/titan_protocol/collect_telemetry.py" --run-dir "$run_dir" --events "$run_dir/opencode_events.jsonl"
       else
         echo "$tool $run_dir missing opencode_events.jsonl" >> "$fail_log"
       fi
@@ -175,7 +223,7 @@ for tool in "${tool_list[@]}"; do
       if [[ -s "$run_dir/phases.log" ]]; then
         phase_args=(--phase-log "$run_dir/phases.log")
       fi
-      python "$REPO_ROOT/titan_protocol/collect_telemetry.py" --run-dir "$run_dir" --model "$tool" "${phase_args[@]}"
+      run_py "$REPO_ROOT/titan_protocol/collect_telemetry.py" --run-dir "$run_dir" --model "$tool" "${phase_args[@]}"
     fi
 
     popd >/dev/null
@@ -187,14 +235,14 @@ if [[ "$SCORE" -eq 1 ]]; then
   if [[ "$RESCORE" -eq 1 ]]; then
     score_args+=(--rescore)
   fi
-  python "$REPO_ROOT/titan_protocol/run_test.py" "${score_args[@]}"
+  run_py "$REPO_ROOT/titan_protocol/run_test.py" "${score_args[@]}"
 fi
 
 if [[ "$REPORT" -eq 1 ]]; then
   results_csv="$RUN_ROOT/results.csv"
-  python "$REPO_ROOT/titan_protocol/summarize_results.py" --input "$results_csv" \
+  run_py "$REPO_ROOT/titan_protocol/summarize_results.py" --input "$results_csv" \
     --out-md "$RUN_ROOT/summary.md" --out-chart "$RUN_ROOT/summary.png"
-  python "$REPO_ROOT/titan_protocol/export_slides.py" --input "$REPO_ROOT/titan_protocol/presentation.md" \
+  run_py "$REPO_ROOT/titan_protocol/export_slides.py" --input "$REPO_ROOT/titan_protocol/presentation.md" \
     --out "$RUN_ROOT/presentation.pptx"
 fi
 

@@ -49,6 +49,12 @@ python export_slides.py --no-install
 - `AUGMENT_SESSION_AUTH`: required for non-interactive Augment runs.
 - `opencode` credentials: configure per your provider (env vars/ADC/etc). Ensure `opencode run` works in a dry run before automation.
 - Optional: `RUN_ROOT`, `TOOLS`, `RUNS` for `run_suite.sh`.
+- Optional OpenLIT (OTLP export):
+  - `OPENLIT_ENDPOINT` (OTLP endpoint URL, e.g., `http://localhost:4318`)
+  - `OPENLIT_HEADERS` (OTLP headers, if required)
+  - `OPENLIT_SERVICE_NAME` / `OPENLIT_ENVIRONMENT` / `OPENLIT_PROTOCOL`
+  - `OPENLIT_ENABLE=1` to force wrapper usage
+  - When enabled, `run_suite.sh` wraps Python commands with `openlit-instrument`.
 
 ## Automation script (recommended)
 Use the wrapper to run all tools, collect telemetry, and optionally score:
