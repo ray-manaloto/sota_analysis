@@ -24,6 +24,16 @@
 **Decision:** Add **OpenLIT env wiring** to the harness runner (`run_suite.sh`) so any tool that emits OTEL data can export to OpenLIT.
 - Rationale: minimal changes, works across tools that already support OTEL, and avoids embedding OpenLIT SDK inside the harness.
 
+## External tool process spans (Amp/Auggie/OpenCode)
+**Options reviewed:**
+- **otel-cli / OpenTelemetry CLI** to emit spans around arbitrary shell commands.
+- **Python OpenTelemetry SDK** (`opentelemetry-sdk` + `opentelemetry-exporter-otlp`) to emit spans from a small wrapper script.
+- **Log parsing** (tool stdout/stderr) for tokens/metadata when tools print them.
+
+**Decision:** Implement a Python wrapper (`otel_span.py`) that creates a span around external tool execution.
+- Rationale: no extra binaries required, works cross-platform, and can attach CLI semantic attributes (process executable, exit code).
+- Logs parsing remains optional/manual; token stats only if tool outputs them.
+
 ## Functional verification / timeouts
 **Considered:** `pytest-timeout`
 - Pros: simple per-test timeout configuration.
