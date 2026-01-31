@@ -55,6 +55,8 @@ python export_slides.py --no-install
   - `OPENLIT_SERVICE_NAME` / `OPENLIT_ENVIRONMENT` / `OPENLIT_PROTOCOL`
   - `OPENLIT_ENABLE=1` to force wrapper usage
   - When enabled, `run_suite.sh` wraps Python commands with `openlit-instrument`.
+- Optional deeper telemetry:
+  - `OPENLIT_TRACE_TOOLS=1` to wrap Amp/Auggie/OpenCode runs in OTEL spans via `otel_span.py`.
 
 ## Automation script (recommended)
 Use the wrapper to run all tools, collect telemetry, and optionally score:
@@ -73,6 +75,7 @@ Use the wrapper to run all tools, collect telemetry, and optionally score:
 - `summarize_results.py`: Generates a summary report and optional chart.
 - `collect_telemetry.py`: Extracts telemetry into `telemetry.json` for a run.
 - `phase_log.py`: Captures `PHASE:` markers and writes `phases.log` for telemetry.
+- `otel_span.py`: Emits OpenTelemetry spans around external tool processes.
 - `run_suite.sh`: Automation wrapper for multi-tool runs and telemetry.
 - `presentation.md`: Marp slide deck for team review.
 - `export_slides.py`: Exports `presentation.md` to PPTX (Google Slides import).

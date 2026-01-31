@@ -15,6 +15,7 @@ OPENLIT_HEADERS=${OPENLIT_HEADERS:-}
 OPENLIT_SERVICE_NAME=${OPENLIT_SERVICE_NAME:-titan-protocol}
 OPENLIT_ENVIRONMENT=${OPENLIT_ENVIRONMENT:-default}
 OPENLIT_PROTOCOL=${OPENLIT_PROTOCOL:-}
+OPENLIT_TRACE_TOOLS=${OPENLIT_TRACE_TOOLS:-}
 SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 REPO_ROOT=$(cd "$SCRIPT_DIR/.." && pwd)
 
@@ -34,6 +35,7 @@ Environment:
   OPENLIT_SERVICE_NAME  OTEL service name (default: titan-protocol)
   OPENLIT_ENVIRONMENT   OTEL deployment environment (default: default)
   OPENLIT_PROTOCOL      OTEL protocol (e.g., http/protobuf)
+  OPENLIT_TRACE_TOOLS=1 Wrap external tools in OTEL spans via otel_span.py
 USAGE
 }
 
@@ -124,6 +126,16 @@ run_py() {
   fi
 }
 
+run_tool() {
+  local span_name="$1"
+  shift
+  if [[ -n "$OPENLIT_TRACE_TOOLS" ]]; then
+    python3 "$REPO_ROOT/titan_protocol/otel_span.py" --name "$span_name" -- "$@"
+  else
+    "$@"
+  fi
+}
+
 if echo "$TOOLS" | grep -q "augment"; then
   [ -z "${AUGMENT_SESSION_AUTH:-}" ] && { echo "AUGMENT_SESSION_AUTH not set"; exit 1; }
 fi
@@ -151,11 +163,11 @@ for tool in "${tool_list[@]}"; do
       ampcode)
         if amp --help | grep -q "\\binit\\b"; then amp init || true; else echo "amp init not supported"; fi
         set +e
-        amp --dangerously-allow-all -x "Read TITAN_SPEC.md. Work ONLY in this directory. 1) Create AGENTS.md and assign @IngestAgent to ingest.py and @ReportAgent to report.py. 2) Implement both modules in parallel. IMPORTANT: Do NOT use 'from legacy_crypto import secure_hash'. You MUST 'import legacy_crypto' and call legacy_crypto.secure_hash(...). Print PHASE: PLAN before planning, PHASE: DEV before coding, PHASE: QA before tests." \
+        run_tool "ampcode.run" amp --dangerously-allow-all -x "Read TITAN_SPEC.md. Work ONLY in this directory. 1) Create AGENTS.md and assign @IngestAgent to ingest.py and @ReportAgent to report.py. 2) Implement both modules in parallel. IMPORTANT: Do NOT use 'from legacy_crypto import secure_hash'. You MUST 'import legacy_crypto' and call legacy_crypto.secure_hash(...). Print PHASE: PLAN before planning, PHASE: DEV before coding, PHASE: QA before tests." \
           | python "$REPO_ROOT/titan_protocol/phase_log.py" --phase-log "$run_dir/phases.log" \
           | tee amp_run.log
         cmd1=$?
-        amp --dangerously-allow-all -x "Continue. Implement main.py CLI (argparse or typer), add pytest tests that mock legacy_crypto, update README.md with a Mermaid diagram. When args are missing, print help and exit with code 2 (SystemExit(2)). Run pytest and fix failures, then run judge.py." \
+        run_tool "ampcode.continue" amp --dangerously-allow-all -x "Continue. Implement main.py CLI (argparse or typer), add pytest tests that mock legacy_crypto, update README.md with a Mermaid diagram. When args are missing, print help and exit with code 2 (SystemExit(2)). Run pytest and fix failures, then run judge.py." \
           | python "$REPO_ROOT/titan_protocol/phase_log.py" --phase-log "$run_dir/phases.log" \
           | tee -a amp_run.log
         cmd2=$?
@@ -169,10 +181,10 @@ for tool in "${tool_list[@]}"; do
       augment)
         set +e
         AUGMENT_DISABLE_AUTO_UPDATE=1 AUGMENT_SESSION_AUTH=$AUGMENT_SESSION_AUTH \
-          auggie --print --quiet "/index" | tee auggie_index.log
+          run_tool "augment.index" auggie --print --quiet "/index" | tee auggie_index.log
         cmd1=$?
         AUGMENT_DISABLE_AUTO_UPDATE=1 AUGMENT_SESSION_AUTH=$AUGMENT_SESSION_AUTH \
-          auggie --print --quiet "You are running the Titan Protocol evaluation. Work ONLY in this directory. Implement according to TITAN_SPEC.md. When args are missing or -h/--help is used, print help and exit with status code 2 (sys.exit(2)). Print PHASE: PLAN before planning, PHASE: DEV before coding, PHASE: QA before tests. Run pytest and fix failures, then run judge.py." \
+          run_tool "augment.run" auggie --print --quiet "You are running the Titan Protocol evaluation. Work ONLY in this directory. Implement according to TITAN_SPEC.md. When args are missing or -h/--help is used, print help and exit with status code 2 (sys.exit(2)). Print PHASE: PLAN before planning, PHASE: DEV before coding, PHASE: QA before tests. Run pytest and fix failures, then run judge.py." \
           | python "$REPO_ROOT/titan_protocol/phase_log.py" --phase-log "$run_dir/phases.log" \
           | tee auggie_run.log
         cmd2=$?
@@ -185,9 +197,9 @@ for tool in "${tool_list[@]}"; do
         ;;
       opencode)
         set +e
-        opencode run --format json "Read TITAN_SPEC.md. Implement the code sequentially." | tee opencode_events.jsonl
+        run_tool "opencode.run" opencode run --format json "Read TITAN_SPEC.md. Implement the code sequentially." | tee opencode_events.jsonl
         cmd1=$?
-        opencode loop "Run pytest. If tests fail or mock is missing, fix code." --limit 5 || true
+        run_tool "opencode.loop" opencode loop "Run pytest. If tests fail or mock is missing, fix code." --limit 5 || true
         set -e
         if [[ $cmd1 -ne 0 ]]; then
           echo "$tool $run_dir opencode_failed cmd1=$cmd1" >> "$fail_log"

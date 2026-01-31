@@ -27,6 +27,7 @@ This document captures the exact steps used in the latest evaluation runs and th
   - `OPENLIT_HEADERS` (e.g., `Authorization=...`)
   - `OPENLIT_SERVICE_NAME` / `OPENLIT_ENVIRONMENT` / `OPENLIT_PROTOCOL`
   - `OPENLIT_ENABLE=1` to force wrapper usage
+  - `OPENLIT_TRACE_TOOLS=1` to wrap Amp/Auggie/OpenCode runs in OTEL spans via `otel_span.py`.
   - Note: `run_suite.sh` will auto-install `openlit` unless `TITAN_NO_INSTALL=1`.
   - When enabled, `run_suite.sh` wraps Python commands with `openlit-instrument` and wires OTEL_* env vars.
 - Authentication check:
