@@ -21,6 +21,7 @@ This document captures the exact steps used in the latest evaluation runs and th
   - `AUGMENT_SESSION_AUTH` for Auggie non-interactive runs
 - Optional env vars:
   - `TITAN_NO_INSTALL=1` to skip auto-install during judge/summary/export.
+  - Note: `phase_log.py` auto-installs `pendulum` unless `TITAN_NO_INSTALL=1` is set.
 - Authentication check:
   - OpenCode: ensure provider credentials are configured (env vars/ADC/etc). Automation should fail fast if a smoke run returns non-zero.
   - Augment: `AUGMENT_SESSION_AUTH` must be present for non-interactive runs.
@@ -144,9 +145,8 @@ python titan_protocol/collect_telemetry.py \
 ## Known Automation Gaps
 - AmpCode and Augment runs do **not** emit structured events by default.
 - Token/model data for Amp/Auggie is missing unless the tools expose it via CLI or events.
-- Phase timing (plan/dev/qa) is not captured unless tools emit markers (see next section).
-- Phase timing is not automated in `run_suite.sh` for Amp/Auggie; provide markers/logs manually if you need it.
-  - `run_suite.sh` asks Amp/Auggie to print PHASE markers, but those markers are not parsed into `telemetry.json` unless you add a phase log.
+- Phase timing (plan/dev/qa) requires tools to emit `PHASE:` markers; `run_suite.sh` captures them into `phases.log` for Amp/Auggie.
+- If a tool does not emit markers, `phases.log` will be empty and no phase timing will be recorded.
 
 ## How to Remove Manual Steps
 - AmpCode: ensure tests patch the correct import or enforce `import legacy_crypto` in prompt.
@@ -185,7 +185,7 @@ python titan_protocol/collect_telemetry.py --run-dir <run_dir> --phase-log phase
 ```
 
 Note: `collect_telemetry.py` auto-detects `opencode_events.jsonl` (or `events.jsonl`) in the run directory if `--events` is omitted.
-`run_suite.sh` now asks Amp/Auggie to print PHASE markers, but the script does not parse logs into telemetry yet (manual if needed).
+`run_suite.sh` uses `phase_log.py` to record `PHASE:` markers from Amp/Auggie output into `phases.log`.
 
 ## Post-Run Scoring + Reports
 If you used `run_suite.sh --report`, these steps are automatic.
