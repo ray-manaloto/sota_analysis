@@ -103,9 +103,13 @@ for tool in "${tool_list[@]}"; do
       ampcode)
         if amp --help | grep -q "\\binit\\b"; then amp init || true; else echo "amp init not supported"; fi
         set +e
-        amp --dangerously-allow-all -x "Read TITAN_SPEC.md. Work ONLY in this directory. 1) Create AGENTS.md and assign @IngestAgent to ingest.py and @ReportAgent to report.py. 2) Implement both modules in parallel. IMPORTANT: Do NOT use 'from legacy_crypto import secure_hash'. You MUST 'import legacy_crypto' and call legacy_crypto.secure_hash(...). Print PHASE: PLAN before planning, PHASE: DEV before coding, PHASE: QA before tests." | tee amp_run.log
+        amp --dangerously-allow-all -x "Read TITAN_SPEC.md. Work ONLY in this directory. 1) Create AGENTS.md and assign @IngestAgent to ingest.py and @ReportAgent to report.py. 2) Implement both modules in parallel. IMPORTANT: Do NOT use 'from legacy_crypto import secure_hash'. You MUST 'import legacy_crypto' and call legacy_crypto.secure_hash(...). Print PHASE: PLAN before planning, PHASE: DEV before coding, PHASE: QA before tests." \
+          | python "$REPO_ROOT/titan_protocol/phase_log.py" --phase-log "$run_dir/phases.log" \
+          | tee amp_run.log
         cmd1=$?
-        amp --dangerously-allow-all -x "Continue. Implement main.py CLI (argparse or typer), add pytest tests that mock legacy_crypto, update README.md with a Mermaid diagram. When args are missing, print help and exit with code 2 (SystemExit(2)). Run pytest and fix failures, then run judge.py." | tee -a amp_run.log
+        amp --dangerously-allow-all -x "Continue. Implement main.py CLI (argparse or typer), add pytest tests that mock legacy_crypto, update README.md with a Mermaid diagram. When args are missing, print help and exit with code 2 (SystemExit(2)). Run pytest and fix failures, then run judge.py." \
+          | python "$REPO_ROOT/titan_protocol/phase_log.py" --phase-log "$run_dir/phases.log" \
+          | tee -a amp_run.log
         cmd2=$?
         set -e
         if [[ $cmd1 -ne 0 || $cmd2 -ne 0 ]]; then
@@ -120,7 +124,9 @@ for tool in "${tool_list[@]}"; do
           auggie --print --quiet "/index" | tee auggie_index.log
         cmd1=$?
         AUGMENT_DISABLE_AUTO_UPDATE=1 AUGMENT_SESSION_AUTH=$AUGMENT_SESSION_AUTH \
-          auggie --print --quiet "You are running the Titan Protocol evaluation. Work ONLY in this directory. Implement according to TITAN_SPEC.md. When args are missing or -h/--help is used, print help and exit with status code 2 (sys.exit(2)). Print PHASE: PLAN before planning, PHASE: DEV before coding, PHASE: QA before tests. Run pytest and fix failures, then run judge.py." | tee auggie_run.log
+          auggie --print --quiet "You are running the Titan Protocol evaluation. Work ONLY in this directory. Implement according to TITAN_SPEC.md. When args are missing or -h/--help is used, print help and exit with status code 2 (sys.exit(2)). Print PHASE: PLAN before planning, PHASE: DEV before coding, PHASE: QA before tests. Run pytest and fix failures, then run judge.py." \
+          | python "$REPO_ROOT/titan_protocol/phase_log.py" --phase-log "$run_dir/phases.log" \
+          | tee auggie_run.log
         cmd2=$?
         set -e
         if [[ $cmd1 -ne 0 || $cmd2 -ne 0 ]]; then
@@ -165,7 +171,11 @@ for tool in "${tool_list[@]}"; do
       fi
     else
       # No structured events for amp/auggie by default; capture logs and write minimal telemetry.
-      python "$REPO_ROOT/titan_protocol/collect_telemetry.py" --run-dir "$run_dir" --model "$tool"
+      phase_args=()
+      if [[ -s "$run_dir/phases.log" ]]; then
+        phase_args=(--phase-log "$run_dir/phases.log")
+      fi
+      python "$REPO_ROOT/titan_protocol/collect_telemetry.py" --run-dir "$run_dir" --model "$tool" "${phase_args[@]}"
     fi
 
     popd >/dev/null

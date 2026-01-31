@@ -66,6 +66,7 @@ Use the wrapper to run all tools, collect telemetry, and optionally score:
 - `run_test.py`: Runner to create run directories and log scores to CSV.
 - `summarize_results.py`: Generates a summary report and optional chart.
 - `collect_telemetry.py`: Extracts telemetry into `telemetry.json` for a run.
+- `phase_log.py`: Captures `PHASE:` markers and writes `phases.log` for telemetry.
 - `run_suite.sh`: Automation wrapper for multi-tool runs and telemetry.
 - `presentation.md`: Marp slide deck for team review.
 - `export_slides.py`: Exports `presentation.md` to PPTX (Google Slides import).
@@ -124,6 +125,8 @@ Capture as much telemetry as possible per run and store it in `telemetry.json`.
 - Ask the agent to emit markers like `PHASE: PLAN`, `PHASE: DEV`, `PHASE: QA` in its output.
 - If you can write a phase log, use a CSV-style file with lines: `epoch_ms_or_iso,PHASE`
 - Then pass it to the collector: `python collect_telemetry.py --run-dir <run_dir> --phase-log phases.log`
+`run_suite.sh` automatically captures PHASE markers into `phases.log` for Amp/Auggie using `phase_log.py`.
+`phase_log.py` auto-installs `pendulum` unless `TITAN_NO_INSTALL=1` is set.
 
 **Option A: from opencode JSON events**
 ```bash

@@ -5,6 +5,17 @@
 - Python packages: `opentelemetry-sdk`, `opentelemetry-exporter-otlp`, `opentelemetry-instrumentation`
 - Rationale: vendor-neutral standard, OTLP export, broad ecosystem support.
 
+## Phase timing capture (for PHASE: PLAN/DEV/QA markers)
+**Options reviewed:**
+- **otel-cli** (OpenTelemetry CLI) to emit spans/events from shell scripts. Requires an OTLP endpoint/collector but provides standard traces. citeturn0search0
+- **opentelemetry-cli** (otel) as an alternative OTLP CLI for spans. citeturn0search1
+- **moreutils `ts`** to timestamp each stdout line in pipelines. Simple but external package/tool. citeturn0search2
+- **Pendulum / Arrow** Python datetime libraries for timezone-aware ISO-8601 timestamps. citeturn1search3turn1search2
+
+**Decision:** Use **Pendulum** in a small helper (`phase_log.py`) to timestamp `PHASE:` markers into `phases.log`.
+- Rationale: minimal setup, no external collector requirement, clean UTC ISO-8601 timestamps, modern API.
+- Future option: upgrade to otel-cli when we want OTLP traces end-to-end.
+
 ## Functional verification / timeouts
 **Considered:** `pytest-timeout`
 - Pros: simple per-test timeout configuration.
