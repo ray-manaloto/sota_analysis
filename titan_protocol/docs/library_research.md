@@ -7,14 +7,22 @@
 
 ## Phase timing capture (for PHASE: PLAN/DEV/QA markers)
 **Options reviewed:**
-- **otel-cli** (OpenTelemetry CLI) to emit spans/events from shell scripts. Requires an OTLP endpoint/collector but provides standard traces. citeturn0search0
-- **opentelemetry-cli** (otel) as an alternative OTLP CLI for spans. citeturn0search1
-- **moreutils `ts`** to timestamp each stdout line in pipelines. Simple but external package/tool. citeturn0search2
-- **Pendulum / Arrow** Python datetime libraries for timezone-aware ISO-8601 timestamps. citeturn1search3turn1search2
+- **otel-cli** (OpenTelemetry CLI) to emit spans/events from shell scripts. Requires an OTLP endpoint/collector but provides standard traces.
+- **opentelemetry-cli** (otel) as an alternative OTLP CLI for spans.
+- **moreutils `ts`** to timestamp each stdout line in pipelines. Simple but external package/tool.
+- **Pendulum / Arrow** Python datetime libraries for timezone-aware ISO-8601 timestamps.
 
 **Decision:** Use **Pendulum** in a small helper (`phase_log.py`) to timestamp `PHASE:` markers into `phases.log`.
 - Rationale: minimal setup, no external collector requirement, clean UTC ISO-8601 timestamps, modern API.
 - Future option: upgrade to otel-cli when we want OTLP traces end-to-end.
+
+## OpenLIT (LLM observability)
+**Options reviewed:**
+- **OpenLIT SDK** (`pip install openlit`) with `openlit.init(...)` for OpenTelemetry-native LLM tracing.
+- **OpenTelemetry env vars** (`OTEL_EXPORTER_OTLP_ENDPOINT`, `OTEL_EXPORTER_OTLP_HEADERS`) to route telemetry to OpenLIT without code changes.
+
+**Decision:** Add **OpenLIT env wiring** to the harness runner (`run_suite.sh`) so any tool that emits OTEL data can export to OpenLIT.
+- Rationale: minimal changes, works across tools that already support OTEL, and avoids embedding OpenLIT SDK inside the harness.
 
 ## Functional verification / timeouts
 **Considered:** `pytest-timeout`
