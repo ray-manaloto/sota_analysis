@@ -1,0 +1,183 @@
+{
+  "score": 8,
+  "context": 0,
+  "research": 0,
+  "qa": 0,
+  "quality": 8,
+  "docs": 0,
+  "ruff_errors": 1,
+  "execution": {
+    "pytest": {
+      "ok": true,
+      "returncode": 0,
+      "stdout": "........                                                                 [100%]\n================================ tests coverage ================================\n_______________ coverage: platform darwin, python 3.14.2-final-0 _______________\n\nName                     Stmts   Miss  Cover\n--------------------------------------------\ncollect_telemetry.py       163    163     0%\nexport_slides.py            91     91     0%\njudge.py                   407    245    40%\nlegacy_crypto.py             2      2     0%\nrun_test.py                220    174    21%\nsummarize_results.py       119    119     0%\ntests/test_judge.py         63      0   100%\ntests/test_run_test.py      29      0   100%\n--------------------------------------------\nTOTAL                     1094    794    27%\n8 passed in 0.09s\n",
+      "stderr": "",
+      "timeout": false,
+      "coverage_percent": 27.0
+    },
+    "smoke": {
+      "ok": false,
+      "returncode": 1,
+      "stdout": "",
+      "stderr": "Traceback (most recent call last):\n  File \"<string>\", line 1, in <module>\n    import ingest, report; ingest.ingest_log('smoke test', 'INFO'); report.generate_pdf('smoke_report.pdf'); print('ok')\n    ^^^^^^^^^^^^^^^^^^^^^\nModuleNotFoundError: No module named 'ingest'\n",
+      "timeout": false
+    },
+    "skipped": false
+  },
+  "quality_breakdown": {
+    "max_points": 20,
+    "score": 8,
+    "checks": {
+      "ruff": {
+        "points": 2,
+        "earned": 2,
+        "ok": true,
+        "skipped": false,
+        "details": {
+          "errors": 1
+        }
+      },
+      "modernization": {
+        "points": 1,
+        "earned": 0,
+        "ok": false,
+        "skipped": false,
+        "details": {
+          "errors": 66
+        }
+      },
+      "complexity": {
+        "points": 1,
+        "earned": 0,
+        "ok": false,
+        "skipped": false,
+        "details": {
+          "xenon_ok": false,
+          "ruff_c90_ok": false
+        }
+      },
+      "pylint": {
+        "points": 1,
+        "earned": 0,
+        "ok": false,
+        "skipped": false,
+        "details": {
+          "returncode": 28
+        }
+      },
+      "dead_code": {
+        "points": 1,
+        "earned": 1,
+        "ok": true,
+        "skipped": false,
+        "details": {
+          "returncode": 0
+        }
+      },
+      "duplication": {
+        "points": 1,
+        "earned": 0,
+        "ok": false,
+        "skipped": false,
+        "details": {
+          "duplicates": 1
+        }
+      },
+      "type_check": {
+        "points": 2,
+        "earned": 0,
+        "ok": false,
+        "skipped": false,
+        "details": {
+          "mypy_ok": false,
+          "pyright_ok": false
+        }
+      },
+      "security": {
+        "points": 2,
+        "earned": 2,
+        "ok": true,
+        "skipped": false,
+        "details": {
+          "returncode": 1,
+          "high_issues": 0
+        }
+      },
+      "coverage": {
+        "points": 2,
+        "earned": 0,
+        "ok": false,
+        "skipped": false,
+        "details": {
+          "coverage_percent": 27.0,
+          "min": 80.0
+        }
+      },
+      "docstyle": {
+        "points": 1,
+        "earned": 0,
+        "ok": false,
+        "skipped": false,
+        "details": {
+          "returncode": 1
+        }
+      },
+      "semgrep": {
+        "points": 1,
+        "earned": 0,
+        "ok": false,
+        "skipped": false,
+        "details": {
+          "returncode": 2
+        }
+      },
+      "pip_audit": {
+        "points": 1,
+        "earned": 1,
+        "ok": true,
+        "skipped": false,
+        "details": {
+          "returncode": 0,
+          "vulnerabilities": 2
+        }
+      },
+      "codespell": {
+        "points": 1,
+        "earned": 1,
+        "ok": true,
+        "skipped": false,
+        "details": {
+          "returncode": 0
+        }
+      },
+      "ruff_format": {
+        "points": 1,
+        "earned": 0,
+        "ok": false,
+        "skipped": false,
+        "details": {
+          "returncode": 1
+        }
+      },
+      "isort": {
+        "points": 1,
+        "earned": 0,
+        "ok": false,
+        "skipped": false,
+        "details": {
+          "returncode": 1
+        }
+      },
+      "license": {
+        "points": 1,
+        "earned": 1,
+        "ok": true,
+        "skipped": false,
+        "details": {
+          "returncode": 0,
+          "packages": 125
+        }
+      }
+    }
+  }
+}
