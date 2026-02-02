@@ -49,6 +49,17 @@ python export_slides.py --no-install
 - `AUGMENT_SESSION_AUTH`: required for non-interactive Augment runs.
 - `opencode` credentials: configure per your provider (env vars/ADC/etc). Ensure `opencode run` works in a dry run before automation.
 - Optional: `RUN_ROOT`, `TOOLS`, `RUNS` for `run_suite.sh`.
+- Optional OpenLIT (OTLP export):
+  - `OPENLIT_ENDPOINT` (OTLP endpoint URL, e.g., `http://localhost:4318`)
+  - `OPENLIT_HEADERS` (OTLP headers, if required)
+  - `OPENLIT_SERVICE_NAME` / `OPENLIT_ENVIRONMENT` / `OPENLIT_PROTOCOL`
+  - `OPENLIT_ENABLE=1` to force wrapper usage
+  - When enabled, `run_suite.sh` wraps Python commands with `openlit-instrument`.
+- Optional deeper telemetry:
+  - `OPENLIT_TRACE_TOOLS=1` to wrap Amp/Auggie/OpenCode runs in OTEL spans via `otel_span.py`.
+  - When OpenLIT is enabled, `run_suite.sh` performs an OTLP endpoint connectivity check before running tools.
+    It uses `OTEL_EXPORTER_OTLP_ENDPOINT` or `OPENLIT_ENDPOINT` if set; otherwise it defaults to
+    `http://127.0.0.1:4318`.
 
 ## Automation script (recommended)
 Use the wrapper to run all tools, collect telemetry, and optionally score:
@@ -66,6 +77,8 @@ Use the wrapper to run all tools, collect telemetry, and optionally score:
 - `run_test.py`: Runner to create run directories and log scores to CSV.
 - `summarize_results.py`: Generates a summary report and optional chart.
 - `collect_telemetry.py`: Extracts telemetry into `telemetry.json` for a run.
+- `phase_log.py`: Captures `PHASE:` markers and writes `phases.log` for telemetry.
+- `otel_span.py`: Emits OpenTelemetry spans around external tool processes.
 - `run_suite.sh`: Automation wrapper for multi-tool runs and telemetry.
 - `presentation.md`: Marp slide deck for team review.
 - `export_slides.py`: Exports `presentation.md` to PPTX (Google Slides import).
@@ -124,6 +137,8 @@ Capture as much telemetry as possible per run and store it in `telemetry.json`.
 - Ask the agent to emit markers like `PHASE: PLAN`, `PHASE: DEV`, `PHASE: QA` in its output.
 - If you can write a phase log, use a CSV-style file with lines: `epoch_ms_or_iso,PHASE`
 - Then pass it to the collector: `python collect_telemetry.py --run-dir <run_dir> --phase-log phases.log`
+`run_suite.sh` automatically captures PHASE markers into `phases.log` for Amp/Auggie using `phase_log.py`.
+`phase_log.py` auto-installs `pendulum` unless `TITAN_NO_INSTALL=1` is set.
 
 **Option A: from opencode JSON events**
 ```bash
@@ -144,6 +159,8 @@ python collect_telemetry.py \\
 **Other tools:** write JSON events to `events.jsonl` inside the run directory, then run
 `python collect_telemetry.py --run-dir <run_dir>`. If `--events` is omitted,
 `collect_telemetry.py` will autodetect `events.jsonl` or `opencode_events.jsonl`.
+For unstructured logs, you can also use `--logs` with a comma-separated list to extract token stats
+best-effort (e.g., `--logs amp_run.log,auggie_run.log`).
 ```
 
 Telemetry fields captured (if present):

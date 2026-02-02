@@ -27,6 +27,26 @@ SESSION_KEYS = ("sessionID", "session_id", "sessionId")
 PHASE_REGEX = re.compile(r"\bPHASE:\s*([A-Z][A-Z0-9_-]*)", re.IGNORECASE)
 PHASE_FIELDS = ("content", "text", "message", "input", "output", "prompt")
 
+LOG_TOKEN_PATTERNS = {
+    "tokens_prompt": [
+        re.compile(r"prompt[_\\s-]*tokens?\\s*[:=]\\s*(\\d+)", re.IGNORECASE),
+        re.compile(r"input[_\\s-]*tokens?\\s*[:=]\\s*(\\d+)", re.IGNORECASE),
+    ],
+    "tokens_completion": [
+        re.compile(r"completion[_\\s-]*tokens?\\s*[:=]\\s*(\\d+)", re.IGNORECASE),
+        re.compile(r"output[_\\s-]*tokens?\\s*[:=]\\s*(\\d+)", re.IGNORECASE),
+    ],
+    "tokens_total": [
+        re.compile(r"total[_\\s-]*tokens?\\s*[:=]\\s*(\\d+)", re.IGNORECASE),
+        re.compile(r"tokens?[_\\s-]*total\\s*[:=]\\s*(\\d+)", re.IGNORECASE),
+    ],
+}
+
+LOG_COMBINED_PATTERN = re.compile(
+    r"prompt\\s*[:=]\\s*(\\d+).*?completion\\s*[:=]\\s*(\\d+).*?total\\s*[:=]\\s*(\\d+)",
+    re.IGNORECASE | re.DOTALL,
+)
+
 
 def walk(obj, handler):
     if isinstance(obj, dict):
@@ -225,6 +245,7 @@ def load_events_from_jsonl(path: Path):
 def load_events_from_json(path: Path):
     return json.loads(path.read_text(encoding="utf-8"))
 
+
 def load_phase_log(path: Path):
     timeline = []
     for line in path.read_text(encoding="utf-8").splitlines():
@@ -263,6 +284,46 @@ def compute_phase_durations(timeline):
     total = timeline[-1]["timestamp_ms"] - timeline[0]["timestamp_ms"]
     return durations, total
 
+
+def parse_tokens_from_text(text: str) -> dict:
+    values = {"tokens_prompt": [], "tokens_completion": [], "tokens_total": []}
+    for key, patterns in LOG_TOKEN_PATTERNS.items():
+        for pattern in patterns:
+            for match in pattern.findall(text):
+                try:
+                    values[key].append(int(match))
+                except (TypeError, ValueError):
+                    continue
+    for match in LOG_COMBINED_PATTERN.findall(text):
+        try:
+            prompt, completion, total = (int(match[0]), int(match[1]), int(match[2]))
+        except (TypeError, ValueError):
+            continue
+        values["tokens_prompt"].append(prompt)
+        values["tokens_completion"].append(completion)
+        values["tokens_total"].append(total)
+    parsed = {}
+    for key, items in values.items():
+        parsed[key] = max(items) if items else None
+    return parsed
+
+
+def parse_tokens_from_logs(paths) -> dict:
+    combined = {"tokens_prompt": None, "tokens_completion": None, "tokens_total": None}
+    for path in paths:
+        try:
+            text = Path(path).read_text(encoding="utf-8", errors="ignore")
+        except FileNotFoundError:
+            continue
+        parsed = parse_tokens_from_text(text)
+        for key, value in parsed.items():
+            if value is None:
+                continue
+            if combined[key] is None or value > combined[key]:
+                combined[key] = value
+    return combined
+
+
 def export_opencode(session_id: str, out_path: Path):
     opencode_bin = os.getenv("OPENCODE_BIN", "opencode")
     result = subprocess.run(
@@ -292,6 +353,10 @@ def main():
     parser.add_argument(
         "--phase-log",
         help="Optional phase log file with lines: <epoch_ms_or_iso>,<PHASE>.",
+    )
+    parser.add_argument(
+        "--logs",
+        help="Comma-separated log paths to parse token stats from (best-effort).",
     )
     args = parser.parse_args()
 
@@ -341,6 +406,19 @@ def main():
     phase_durations, duration_ms = compute_phase_durations(phase_timeline)
 
     models = sorted(collected.get("models", []))
+
+    log_tokens = {}
+    if args.logs:
+        log_paths = [p.strip() for p in args.logs.split(",") if p.strip()]
+        log_tokens = parse_tokens_from_logs(log_paths)
+
+    def is_missing(value):
+        return value is None or value == 0
+
+    if log_tokens:
+        for key in ("tokens_prompt", "tokens_completion", "tokens_total"):
+            if is_missing(collected.get(key)) and log_tokens.get(key) is not None:
+                collected[key] = log_tokens[key]
     telemetry = {
         "session_id": args.session or collected.get("session_id"),
         "model": args.model or (models[0] if models else None),

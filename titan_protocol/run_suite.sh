@@ -9,6 +9,13 @@ CLEAN=0
 SCORE=0
 RESCORE=0
 REPORT=0
+OPENLIT_ENABLE=${OPENLIT_ENABLE:-}
+OPENLIT_ENDPOINT=${OPENLIT_ENDPOINT:-}
+OPENLIT_HEADERS=${OPENLIT_HEADERS:-}
+OPENLIT_SERVICE_NAME=${OPENLIT_SERVICE_NAME:-titan-protocol}
+OPENLIT_ENVIRONMENT=${OPENLIT_ENVIRONMENT:-default}
+OPENLIT_PROTOCOL=${OPENLIT_PROTOCOL:-}
+OPENLIT_TRACE_TOOLS=${OPENLIT_TRACE_TOOLS:-}
 SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 REPO_ROOT=$(cd "$SCRIPT_DIR/.." && pwd)
 
@@ -22,6 +29,13 @@ Environment:
   RUNS                  Runs per tool
   AUGMENT_SESSION_AUTH  Required for auggie non-interactive runs
   REPORT=1              Generate summary + slides when scoring
+  OPENLIT_ENABLE=1      Enable OpenLIT wrapper if openlit-instrument is available
+  OPENLIT_ENDPOINT      OTLP endpoint for OpenLIT (e.g., http://localhost:4318)
+  OPENLIT_HEADERS       OTLP headers for OpenLIT (e.g., Authorization=Basic%20...)
+  OPENLIT_SERVICE_NAME  OTEL service name (default: titan-protocol)
+  OPENLIT_ENVIRONMENT   OTEL deployment environment (default: default)
+  OPENLIT_PROTOCOL      OTEL protocol (e.g., http/protobuf)
+  OPENLIT_TRACE_TOOLS=1 Wrap external tools in OTEL spans via otel_span.py
 USAGE
 }
 
@@ -76,6 +90,89 @@ node --version >/dev/null || { echo "node missing"; exit 1; }
 npm --version >/dev/null || { echo "npm missing"; exit 1; }
 opencode auth list >/dev/null 2>&1 || { echo "opencode auth list failed"; exit 1; }
 
+OPENLIT_ACTIVE=0
+if [[ -n "$OPENLIT_ENABLE" || -n "$OPENLIT_ENDPOINT" ]]; then
+  OPENLIT_ACTIVE=1
+  if [[ -n "$OPENLIT_ENDPOINT" ]]; then
+    export OTEL_EXPORTER_OTLP_ENDPOINT="${OTEL_EXPORTER_OTLP_ENDPOINT:-$OPENLIT_ENDPOINT}"
+  fi
+  if [[ -n "$OPENLIT_HEADERS" ]]; then
+    export OTEL_EXPORTER_OTLP_HEADERS="${OTEL_EXPORTER_OTLP_HEADERS:-$OPENLIT_HEADERS}"
+  fi
+  export OTEL_SERVICE_NAME="${OTEL_SERVICE_NAME:-$OPENLIT_SERVICE_NAME}"
+  export OTEL_DEPLOYMENT_ENVIRONMENT="${OTEL_DEPLOYMENT_ENVIRONMENT:-$OPENLIT_ENVIRONMENT}"
+  if [[ -n "$OPENLIT_PROTOCOL" ]]; then
+    export OTEL_EXPORTER_OTLP_PROTOCOL="${OTEL_EXPORTER_OTLP_PROTOCOL:-$OPENLIT_PROTOCOL}"
+  fi
+  if ! command -v openlit-instrument >/dev/null; then
+    if [[ "${TITAN_NO_INSTALL:-}" == "1" ]]; then
+      echo "openlit-instrument missing and TITAN_NO_INSTALL=1" >&2
+      exit 1
+    fi
+    python3 -m pip install openlit
+  fi
+fi
+
+openlit_args=(openlit-instrument --service-name "$OPENLIT_SERVICE_NAME" --environment "$OPENLIT_ENVIRONMENT")
+if [[ -n "$OPENLIT_ENDPOINT" ]]; then
+  openlit_args+=(--otlp-endpoint "$OPENLIT_ENDPOINT")
+fi
+
+check_otlp_endpoint() {
+  local endpoint="${OTEL_EXPORTER_OTLP_ENDPOINT:-}"
+  if [[ -z "$endpoint" ]]; then
+    endpoint="${OPENLIT_ENDPOINT:-}"
+  fi
+  if [[ -z "$endpoint" ]]; then
+    endpoint="http://127.0.0.1:4318"
+  fi
+  OTEL_ENDPOINT_TO_CHECK="$endpoint" python3 - <<'PY'
+import os
+import socket
+import sys
+import urllib.parse
+
+endpoint = os.environ.get("OTEL_ENDPOINT_TO_CHECK", "http://127.0.0.1:4318")
+parsed = urllib.parse.urlparse(endpoint)
+host = parsed.hostname or "127.0.0.1"
+port = parsed.port
+if port is None:
+    port = 443 if parsed.scheme == "https" else 80
+
+try:
+    with socket.create_connection((host, port), timeout=2):
+        pass
+except OSError as exc:
+    print(f"OTLP endpoint not reachable: {endpoint} ({exc})", file=sys.stderr)
+    sys.exit(1)
+print(f"OTLP endpoint reachable: {endpoint}")
+PY
+}
+
+if [[ "$OPENLIT_ACTIVE" -eq 1 ]]; then
+  check_otlp_endpoint
+fi
+
+run_py() {
+  if [[ "$OPENLIT_ACTIVE" -eq 1 ]]; then
+    "${openlit_args[@]}" python3 "$@"
+  else
+    python3 "$@"
+  fi
+}
+
+run_tool() {
+  local span_name="$1"
+  local tool_name="$2"
+  local phase_name="$3"
+  shift 3
+  if [[ -n "$OPENLIT_TRACE_TOOLS" ]]; then
+    python3 "$REPO_ROOT/titan_protocol/otel_span.py" --name "$span_name" --tool "$tool_name" --phase "$phase_name" -- "$@"
+  else
+    "$@"
+  fi
+}
+
 if echo "$TOOLS" | grep -q "augment"; then
   [ -z "${AUGMENT_SESSION_AUTH:-}" ] && { echo "AUGMENT_SESSION_AUTH not set"; exit 1; }
 fi
@@ -86,7 +183,7 @@ if [[ "$CLEAN" -eq 1 ]] && [[ -d "$RUN_ROOT" ]]; then
   mv "$RUN_ROOT" "${RUN_ROOT}_$(date +%Y%m%d_%H%M%S)"
 fi
 
-python "$REPO_ROOT/titan_protocol/run_test.py" --prepare --runs "$RUNS" --output-root "$RUN_ROOT" --tools "$TOOLS"
+run_py "$REPO_ROOT/titan_protocol/run_test.py" --prepare --runs "$RUNS" --output-root "$RUN_ROOT" --tools "$TOOLS"
 
 IFS=',' read -r -a tool_list <<<"$TOOLS"
 
@@ -103,9 +200,13 @@ for tool in "${tool_list[@]}"; do
       ampcode)
         if amp --help | grep -q "\\binit\\b"; then amp init || true; else echo "amp init not supported"; fi
         set +e
-        amp --dangerously-allow-all -x "Read TITAN_SPEC.md. Work ONLY in this directory. 1) Create AGENTS.md and assign @IngestAgent to ingest.py and @ReportAgent to report.py. 2) Implement both modules in parallel. IMPORTANT: Do NOT use 'from legacy_crypto import secure_hash'. You MUST 'import legacy_crypto' and call legacy_crypto.secure_hash(...). Print PHASE: PLAN before planning, PHASE: DEV before coding, PHASE: QA before tests." | tee amp_run.log
+        run_tool "ampcode.run" "ampcode" "run" amp --dangerously-allow-all -x "Read TITAN_SPEC.md. Work ONLY in this directory. 1) Create AGENTS.md and assign @IngestAgent to ingest.py and @ReportAgent to report.py. 2) Implement both modules in parallel. IMPORTANT: Do NOT use 'from legacy_crypto import secure_hash'. You MUST 'import legacy_crypto' and call legacy_crypto.secure_hash(...). Print PHASE: PLAN before planning, PHASE: DEV before coding, PHASE: QA before tests." \
+          | python "$REPO_ROOT/titan_protocol/phase_log.py" --phase-log "$run_dir/phases.log" \
+          | tee amp_run.log
         cmd1=$?
-        amp --dangerously-allow-all -x "Continue. Implement main.py CLI (argparse or typer), add pytest tests that mock legacy_crypto, update README.md with a Mermaid diagram. When args are missing, print help and exit with code 2 (SystemExit(2)). Run pytest and fix failures, then run judge.py." | tee -a amp_run.log
+        run_tool "ampcode.continue" "ampcode" "continue" amp --dangerously-allow-all -x "Continue. Implement main.py CLI (argparse or typer), add pytest tests that mock legacy_crypto, update README.md with a Mermaid diagram. When args are missing, print help and exit with code 2 (SystemExit(2)). Run pytest and fix failures, then run judge.py." \
+          | python "$REPO_ROOT/titan_protocol/phase_log.py" --phase-log "$run_dir/phases.log" \
+          | tee -a amp_run.log
         cmd2=$?
         set -e
         if [[ $cmd1 -ne 0 || $cmd2 -ne 0 ]]; then
@@ -117,10 +218,12 @@ for tool in "${tool_list[@]}"; do
       augment)
         set +e
         AUGMENT_DISABLE_AUTO_UPDATE=1 AUGMENT_SESSION_AUTH=$AUGMENT_SESSION_AUTH \
-          auggie --print --quiet "/index" | tee auggie_index.log
+          run_tool "augment.index" "augment" "index" auggie --print --quiet "/index" | tee auggie_index.log
         cmd1=$?
         AUGMENT_DISABLE_AUTO_UPDATE=1 AUGMENT_SESSION_AUTH=$AUGMENT_SESSION_AUTH \
-          auggie --print --quiet "You are running the Titan Protocol evaluation. Work ONLY in this directory. Implement according to TITAN_SPEC.md. When args are missing or -h/--help is used, print help and exit with status code 2 (sys.exit(2)). Print PHASE: PLAN before planning, PHASE: DEV before coding, PHASE: QA before tests. Run pytest and fix failures, then run judge.py." | tee auggie_run.log
+          run_tool "augment.run" "augment" "run" auggie --print --quiet "You are running the Titan Protocol evaluation. Work ONLY in this directory. Implement according to TITAN_SPEC.md. When args are missing or -h/--help is used, print help and exit with status code 2 (sys.exit(2)). Print PHASE: PLAN before planning, PHASE: DEV before coding, PHASE: QA before tests. Run pytest and fix failures, then run judge.py." \
+          | python "$REPO_ROOT/titan_protocol/phase_log.py" --phase-log "$run_dir/phases.log" \
+          | tee auggie_run.log
         cmd2=$?
         set -e
         if [[ $cmd1 -ne 0 || $cmd2 -ne 0 ]]; then
@@ -131,9 +234,9 @@ for tool in "${tool_list[@]}"; do
         ;;
       opencode)
         set +e
-        opencode run --format json "Read TITAN_SPEC.md. Implement the code sequentially." | tee opencode_events.jsonl
+        run_tool "opencode.run" "opencode" "run" opencode run --format json "Read TITAN_SPEC.md. Implement the code sequentially." | tee opencode_events.jsonl
         cmd1=$?
-        opencode loop "Run pytest. If tests fail or mock is missing, fix code." --limit 5 || true
+        run_tool "opencode.loop" "opencode" "loop" opencode loop "Run pytest. If tests fail or mock is missing, fix code." --limit 5 || true
         set -e
         if [[ $cmd1 -ne 0 ]]; then
           echo "$tool $run_dir opencode_failed cmd1=$cmd1" >> "$fail_log"
@@ -147,9 +250,9 @@ for tool in "${tool_list[@]}"; do
     esac
 
     set +e
-    python3 -m pytest -q
+    run_py -m pytest -q
     pytest_status=$?
-    python3 judge.py
+    run_py judge.py
     judge_status=$?
     set -e
 
@@ -159,13 +262,28 @@ for tool in "${tool_list[@]}"; do
 
     if [[ "$tool" == "opencode" ]]; then
       if [[ -s opencode_events.jsonl ]]; then
-        python "$REPO_ROOT/titan_protocol/collect_telemetry.py" --run-dir "$run_dir" --events "$run_dir/opencode_events.jsonl"
+        run_py "$REPO_ROOT/titan_protocol/collect_telemetry.py" --run-dir "$run_dir" --events "$run_dir/opencode_events.jsonl"
       else
         echo "$tool $run_dir missing opencode_events.jsonl" >> "$fail_log"
       fi
     else
       # No structured events for amp/auggie by default; capture logs and write minimal telemetry.
-      python "$REPO_ROOT/titan_protocol/collect_telemetry.py" --run-dir "$run_dir" --model "$tool"
+      phase_args=()
+      log_args=()
+      if [[ -s "$run_dir/phases.log" ]]; then
+        phase_args=(--phase-log "$run_dir/phases.log")
+      fi
+      log_paths=()
+      if [[ "$tool" == "ampcode" && -s "$run_dir/amp_run.log" ]]; then
+        log_paths+=("$run_dir/amp_run.log")
+      fi
+      if [[ "$tool" == "augment" && -s "$run_dir/auggie_run.log" ]]; then
+        log_paths+=("$run_dir/auggie_run.log")
+      fi
+      if [[ ${#log_paths[@]} -gt 0 ]]; then
+        log_args=(--logs "$(IFS=','; echo "${log_paths[*]}")")
+      fi
+      run_py "$REPO_ROOT/titan_protocol/collect_telemetry.py" --run-dir "$run_dir" --model "$tool" "${phase_args[@]}" "${log_args[@]}"
     fi
 
     popd >/dev/null
@@ -177,14 +295,14 @@ if [[ "$SCORE" -eq 1 ]]; then
   if [[ "$RESCORE" -eq 1 ]]; then
     score_args+=(--rescore)
   fi
-  python "$REPO_ROOT/titan_protocol/run_test.py" "${score_args[@]}"
+  run_py "$REPO_ROOT/titan_protocol/run_test.py" "${score_args[@]}"
 fi
 
 if [[ "$REPORT" -eq 1 ]]; then
   results_csv="$RUN_ROOT/results.csv"
-  python "$REPO_ROOT/titan_protocol/summarize_results.py" --input "$results_csv" \
+  run_py "$REPO_ROOT/titan_protocol/summarize_results.py" --input "$results_csv" \
     --out-md "$RUN_ROOT/summary.md" --out-chart "$RUN_ROOT/summary.png"
-  python "$REPO_ROOT/titan_protocol/export_slides.py" --input "$REPO_ROOT/titan_protocol/presentation.md" \
+  run_py "$REPO_ROOT/titan_protocol/export_slides.py" --input "$REPO_ROOT/titan_protocol/presentation.md" \
     --out "$RUN_ROOT/presentation.pptx"
 fi
 
