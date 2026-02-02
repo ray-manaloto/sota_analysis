@@ -34,6 +34,30 @@
 - Rationale: no extra binaries required, works cross-platform, and can attach CLI semantic attributes (process executable, exit code).
 - Logs parsing remains optional/manual; token stats only if tool outputs them.
 
+## OTLP endpoint health check
+**Options reviewed:**
+- **requests/httpx** to probe the OTLP HTTP endpoint.
+- **Socket connect** for a dependency-free connectivity check.
+
+**Decision:** Use a **socket connection check** inside `run_suite.sh`.
+- Rationale: avoids extra dependencies and catches missing collectors early.
+
+## OpenTelemetry semantic conventions (CLI spans)
+**Options reviewed:**
+- **OpenTelemetry semantic conventions for CLI spans** (`process.executable.name`, `process.exit.code`, `process.command_line`).
+- **Custom tool attributes** (`tool.name`, `tool.phase`) for identifying per-tool spans.
+
+**Decision:** Use the CLI semantic convention attribute keys plus custom tool attributes.
+- Rationale: align with OTel CLI span guidance and add tool-level context for aggregation.
+
+## Token stats from logs
+**Options reviewed:**
+- **Regex-based parsing** for common token fields (prompt, completion, total).
+- **Structured JSON logs** (preferred when tools can emit JSONL).
+
+**Decision:** Add a lightweight regex parser to `collect_telemetry.py` for unstructured logs.
+- Rationale: avoids extra dependencies and opportunistically fills token usage when tools print it.
+
 ## Functional verification / timeouts
 **Considered:** `pytest-timeout`
 - Pros: simple per-test timeout configuration.

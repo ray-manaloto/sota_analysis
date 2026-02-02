@@ -57,6 +57,9 @@ python export_slides.py --no-install
   - When enabled, `run_suite.sh` wraps Python commands with `openlit-instrument`.
 - Optional deeper telemetry:
   - `OPENLIT_TRACE_TOOLS=1` to wrap Amp/Auggie/OpenCode runs in OTEL spans via `otel_span.py`.
+  - When OpenLIT is enabled, `run_suite.sh` performs an OTLP endpoint connectivity check before running tools.
+    It uses `OTEL_EXPORTER_OTLP_ENDPOINT` or `OPENLIT_ENDPOINT` if set; otherwise it defaults to
+    `http://127.0.0.1:4318`.
 
 ## Automation script (recommended)
 Use the wrapper to run all tools, collect telemetry, and optionally score:
@@ -156,6 +159,8 @@ python collect_telemetry.py \\
 **Other tools:** write JSON events to `events.jsonl` inside the run directory, then run
 `python collect_telemetry.py --run-dir <run_dir>`. If `--events` is omitted,
 `collect_telemetry.py` will autodetect `events.jsonl` or `opencode_events.jsonl`.
+For unstructured logs, you can also use `--logs` with a comma-separated list to extract token stats
+best-effort (e.g., `--logs amp_run.log,auggie_run.log`).
 ```
 
 Telemetry fields captured (if present):

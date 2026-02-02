@@ -118,6 +118,41 @@ if [[ -n "$OPENLIT_ENDPOINT" ]]; then
   openlit_args+=(--otlp-endpoint "$OPENLIT_ENDPOINT")
 fi
 
+check_otlp_endpoint() {
+  local endpoint="${OTEL_EXPORTER_OTLP_ENDPOINT:-}"
+  if [[ -z "$endpoint" ]]; then
+    endpoint="${OPENLIT_ENDPOINT:-}"
+  fi
+  if [[ -z "$endpoint" ]]; then
+    endpoint="http://127.0.0.1:4318"
+  fi
+  OTEL_ENDPOINT_TO_CHECK="$endpoint" python3 - <<'PY'
+import os
+import socket
+import sys
+import urllib.parse
+
+endpoint = os.environ.get("OTEL_ENDPOINT_TO_CHECK", "http://127.0.0.1:4318")
+parsed = urllib.parse.urlparse(endpoint)
+host = parsed.hostname or "127.0.0.1"
+port = parsed.port
+if port is None:
+    port = 443 if parsed.scheme == "https" else 80
+
+try:
+    with socket.create_connection((host, port), timeout=2):
+        pass
+except OSError as exc:
+    print(f"OTLP endpoint not reachable: {endpoint} ({exc})", file=sys.stderr)
+    sys.exit(1)
+print(f"OTLP endpoint reachable: {endpoint}")
+PY
+}
+
+if [[ "$OPENLIT_ACTIVE" -eq 1 ]]; then
+  check_otlp_endpoint
+fi
+
 run_py() {
   if [[ "$OPENLIT_ACTIVE" -eq 1 ]]; then
     "${openlit_args[@]}" python3 "$@"
@@ -128,9 +163,11 @@ run_py() {
 
 run_tool() {
   local span_name="$1"
-  shift
+  local tool_name="$2"
+  local phase_name="$3"
+  shift 3
   if [[ -n "$OPENLIT_TRACE_TOOLS" ]]; then
-    python3 "$REPO_ROOT/titan_protocol/otel_span.py" --name "$span_name" -- "$@"
+    python3 "$REPO_ROOT/titan_protocol/otel_span.py" --name "$span_name" --tool "$tool_name" --phase "$phase_name" -- "$@"
   else
     "$@"
   fi
@@ -163,11 +200,11 @@ for tool in "${tool_list[@]}"; do
       ampcode)
         if amp --help | grep -q "\\binit\\b"; then amp init || true; else echo "amp init not supported"; fi
         set +e
-        run_tool "ampcode.run" amp --dangerously-allow-all -x "Read TITAN_SPEC.md. Work ONLY in this directory. 1) Create AGENTS.md and assign @IngestAgent to ingest.py and @ReportAgent to report.py. 2) Implement both modules in parallel. IMPORTANT: Do NOT use 'from legacy_crypto import secure_hash'. You MUST 'import legacy_crypto' and call legacy_crypto.secure_hash(...). Print PHASE: PLAN before planning, PHASE: DEV before coding, PHASE: QA before tests." \
+        run_tool "ampcode.run" "ampcode" "run" amp --dangerously-allow-all -x "Read TITAN_SPEC.md. Work ONLY in this directory. 1) Create AGENTS.md and assign @IngestAgent to ingest.py and @ReportAgent to report.py. 2) Implement both modules in parallel. IMPORTANT: Do NOT use 'from legacy_crypto import secure_hash'. You MUST 'import legacy_crypto' and call legacy_crypto.secure_hash(...). Print PHASE: PLAN before planning, PHASE: DEV before coding, PHASE: QA before tests." \
           | python "$REPO_ROOT/titan_protocol/phase_log.py" --phase-log "$run_dir/phases.log" \
           | tee amp_run.log
         cmd1=$?
-        run_tool "ampcode.continue" amp --dangerously-allow-all -x "Continue. Implement main.py CLI (argparse or typer), add pytest tests that mock legacy_crypto, update README.md with a Mermaid diagram. When args are missing, print help and exit with code 2 (SystemExit(2)). Run pytest and fix failures, then run judge.py." \
+        run_tool "ampcode.continue" "ampcode" "continue" amp --dangerously-allow-all -x "Continue. Implement main.py CLI (argparse or typer), add pytest tests that mock legacy_crypto, update README.md with a Mermaid diagram. When args are missing, print help and exit with code 2 (SystemExit(2)). Run pytest and fix failures, then run judge.py." \
           | python "$REPO_ROOT/titan_protocol/phase_log.py" --phase-log "$run_dir/phases.log" \
           | tee -a amp_run.log
         cmd2=$?
@@ -181,10 +218,10 @@ for tool in "${tool_list[@]}"; do
       augment)
         set +e
         AUGMENT_DISABLE_AUTO_UPDATE=1 AUGMENT_SESSION_AUTH=$AUGMENT_SESSION_AUTH \
-          run_tool "augment.index" auggie --print --quiet "/index" | tee auggie_index.log
+          run_tool "augment.index" "augment" "index" auggie --print --quiet "/index" | tee auggie_index.log
         cmd1=$?
         AUGMENT_DISABLE_AUTO_UPDATE=1 AUGMENT_SESSION_AUTH=$AUGMENT_SESSION_AUTH \
-          run_tool "augment.run" auggie --print --quiet "You are running the Titan Protocol evaluation. Work ONLY in this directory. Implement according to TITAN_SPEC.md. When args are missing or -h/--help is used, print help and exit with status code 2 (sys.exit(2)). Print PHASE: PLAN before planning, PHASE: DEV before coding, PHASE: QA before tests. Run pytest and fix failures, then run judge.py." \
+          run_tool "augment.run" "augment" "run" auggie --print --quiet "You are running the Titan Protocol evaluation. Work ONLY in this directory. Implement according to TITAN_SPEC.md. When args are missing or -h/--help is used, print help and exit with status code 2 (sys.exit(2)). Print PHASE: PLAN before planning, PHASE: DEV before coding, PHASE: QA before tests. Run pytest and fix failures, then run judge.py." \
           | python "$REPO_ROOT/titan_protocol/phase_log.py" --phase-log "$run_dir/phases.log" \
           | tee auggie_run.log
         cmd2=$?
@@ -197,9 +234,9 @@ for tool in "${tool_list[@]}"; do
         ;;
       opencode)
         set +e
-        run_tool "opencode.run" opencode run --format json "Read TITAN_SPEC.md. Implement the code sequentially." | tee opencode_events.jsonl
+        run_tool "opencode.run" "opencode" "run" opencode run --format json "Read TITAN_SPEC.md. Implement the code sequentially." | tee opencode_events.jsonl
         cmd1=$?
-        run_tool "opencode.loop" opencode loop "Run pytest. If tests fail or mock is missing, fix code." --limit 5 || true
+        run_tool "opencode.loop" "opencode" "loop" opencode loop "Run pytest. If tests fail or mock is missing, fix code." --limit 5 || true
         set -e
         if [[ $cmd1 -ne 0 ]]; then
           echo "$tool $run_dir opencode_failed cmd1=$cmd1" >> "$fail_log"
@@ -232,10 +269,21 @@ for tool in "${tool_list[@]}"; do
     else
       # No structured events for amp/auggie by default; capture logs and write minimal telemetry.
       phase_args=()
+      log_args=()
       if [[ -s "$run_dir/phases.log" ]]; then
         phase_args=(--phase-log "$run_dir/phases.log")
       fi
-      run_py "$REPO_ROOT/titan_protocol/collect_telemetry.py" --run-dir "$run_dir" --model "$tool" "${phase_args[@]}"
+      log_paths=()
+      if [[ "$tool" == "ampcode" && -s "$run_dir/amp_run.log" ]]; then
+        log_paths+=("$run_dir/amp_run.log")
+      fi
+      if [[ "$tool" == "augment" && -s "$run_dir/auggie_run.log" ]]; then
+        log_paths+=("$run_dir/auggie_run.log")
+      fi
+      if [[ ${#log_paths[@]} -gt 0 ]]; then
+        log_args=(--logs "$(IFS=','; echo "${log_paths[*]}")")
+      fi
+      run_py "$REPO_ROOT/titan_protocol/collect_telemetry.py" --run-dir "$run_dir" --model "$tool" "${phase_args[@]}" "${log_args[@]}"
     fi
 
     popd >/dev/null

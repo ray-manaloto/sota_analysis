@@ -30,6 +30,8 @@ This document captures the exact steps used in the latest evaluation runs and th
   - `OPENLIT_TRACE_TOOLS=1` to wrap Amp/Auggie/OpenCode runs in OTEL spans via `otel_span.py`.
   - Note: `run_suite.sh` will auto-install `openlit` unless `TITAN_NO_INSTALL=1`.
   - When enabled, `run_suite.sh` wraps Python commands with `openlit-instrument` and wires OTEL_* env vars.
+  - When OpenLIT is enabled, `run_suite.sh` performs an OTLP endpoint connectivity check before running tools.
+    It checks `OTEL_EXPORTER_OTLP_ENDPOINT` or `OPENLIT_ENDPOINT`, defaulting to `http://127.0.0.1:4318`.
 - Authentication check:
   - OpenCode: ensure provider credentials are configured (env vars/ADC/etc). Automation should fail fast if a smoke run returns non-zero.
   - Augment: `AUGMENT_SESSION_AUTH` must be present for non-interactive runs.
@@ -153,6 +155,7 @@ python titan_protocol/collect_telemetry.py \
 ## Known Automation Gaps
 - AmpCode and Augment runs do **not** emit structured events by default.
 - Token/model data for Amp/Auggie is missing unless the tools expose it via CLI or events.
+- `collect_telemetry.py` can parse best-effort token stats from unstructured logs via `--logs`.
 - Phase timing (plan/dev/qa) requires tools to emit `PHASE:` markers; `run_suite.sh` captures them into `phases.log` for Amp/Auggie.
 - If a tool does not emit markers, `phases.log` will be empty and no phase timing will be recorded.
 

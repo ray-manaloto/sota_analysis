@@ -42,6 +42,8 @@ def ensure_otel():
 def main() -> None:
     parser = argparse.ArgumentParser(description="Wrap a command in an OTEL span.")
     parser.add_argument("--name", required=True, help="Span name to emit.")
+    parser.add_argument("--tool", help="Tool name for span attributes.")
+    parser.add_argument("--phase", help="Tool phase (e.g., run, loop, index).")
     parser.add_argument("cmd", nargs=argparse.REMAINDER, help="Command to execute.")
     args = parser.parse_args()
 
@@ -73,6 +75,10 @@ def main() -> None:
     with tracer.start_as_current_span(args.name, kind=SpanKind.CLIENT) as span:
         span.set_attribute("process.command_line", command_line)
         span.set_attribute("process.executable.name", executable_name)
+        if args.tool:
+            span.set_attribute("tool.name", args.tool)
+        if args.phase:
+            span.set_attribute("tool.phase", args.phase)
         result = subprocess.run(cmd, check=False)
         span.set_attribute("process.exit.code", result.returncode)
         if result.returncode != 0:
